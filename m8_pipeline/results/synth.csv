@@ -1,0 +1,8 @@
+config,num_vns,vcs_per_vn,buffer_depth,sa_iters,secure,pipe,mesh_area_um2,area_per_router_um2,flops,crit_path_ns,critical_path
+m4_router,1,1,4,1,0,0,230512,25612,5372,3.95,"g_col[1].g_row[1].u_router.g_in_port[0].g_in_vc[0].u_fifo.head -> g_col[2].g_row[1].u_router.g_in_port[3].g_in_vc[0].u_fifo.push_tag"
+vcs_1pass,1,4,2,1,0,0,469488,52165,10936,6.16,"g_col[1].g_row[1].u_router.credit_count -> g_col[0].g_row[1].u_router.g_in_port[2].g_in_vc[0].u_fifo.push_tag"
+vcs_2pass,1,4,2,2,0,0,490329,54481,10929,8.66,"g_col[1].g_row[1].u_router.credit_count -> g_col[0].g_row[1].u_router.g_in_port[2].g_in_vc[0].u_fifo.push_tag"
+vcs_1pass_pipe,1,4,2,1,0,1,502735,55859,12283,5.35,"g_col[1].g_row[0].u_router.credit_count -> g_col[1].g_row[0].u_router.port_flit"
+vcs_2pass_pipe,1,4,2,2,0,1,522700,58078,12282,7.94,"g_col[1].g_row[2].u_router.credit_count -> g_col[1].g_row[2].u_router.port_flit"
+vcs_2pass_secure_pipe,1,4,2,2,1,1,503128,55903,11740,7.56,"g_col[1].g_row[0].u_router.credit_count -> g_col[1].g_row[0].u_router.port_flit"
+full_pipe,3,2,2,2,1,1,738419,82047,17073,10.09,"g_col[1].g_row[1].u_router.credit_count -> $auto$rtlil.cc:3480:MuxGate$301913"

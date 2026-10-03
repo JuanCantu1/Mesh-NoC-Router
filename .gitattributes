@@ -1,0 +1,7 @@
+# Keep line endings stable: the shell scripts must stay LF so they run under bash on any machine.
+* text=auto
+*.sh text eol=lf
+*.sv text eol=lf
+*.py text eol=lf
+*.pdf binary
+*.png binary

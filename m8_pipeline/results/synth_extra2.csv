@@ -1,0 +1,2 @@
+config,num_vns,vcs_per_vn,buffer_depth,sa_iters,secure,pipe,mesh_area_um2,area_per_router_um2,flops,crit_path_ns,critical_path
+deeper_fifo,1,1,8,1,0,0,424572,47175,10400,5.06,"g_col[1].g_row[0].u_router.g_in_port[1].g_in_vc[0].u_fifo.head -> g_col[1].g_row[1].u_router.g_in_port[0].g_in_vc[0].u_fifo.push_tag"

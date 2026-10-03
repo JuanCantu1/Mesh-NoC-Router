@@ -1,0 +1,9 @@
+blackhole_tile,secure,wd_limit,rate_permille,victim_offered,victim_accepted,victim_avg_latency,victim_lost,bh_delivered,bh_discarded,stuck_after_flush,quarantine_cycle,compromised,errors,verdict
+4,0,256,200,0.1780,0.0223,4.945,2802,8,0,128,-1,1,0,0,ATTACK-PASS
+4,0,256,400,0.3607,0.0450,5.001,5684,8,0,128,-1,1,0,0,ATTACK-PASS
+4,1,256,200,0.1780,0.1782,6.272,0,8,567,0,313,0,0,0,ATTACK-PASS
+4,1,256,400,0.3607,0.3606,6.550,0,8,1167,0,280,0,0,0,ATTACK-PASS
+8,0,256,200,0.1766,0.0223,6.562,2776,8,0,128,-1,1,0,0,ATTACK-PASS
+8,0,256,400,0.3596,0.0436,6.494,5687,8,0,128,-1,1,0,0,ATTACK-PASS
+8,1,256,200,0.1766,0.1768,6.074,0,8,596,0,326,0,0,0,ATTACK-PASS
+8,1,256,400,0.3596,0.3595,6.379,0,8,1166,0,288,0,0,0,ATTACK-PASS

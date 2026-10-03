@@ -1,0 +1,1013 @@
+<title>NoC Mesh Replay</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+<style>
+/* Layout: a logic-analyzer bench. Transport bar on top, the mesh (one or two
+   side-by-side variants on a shared clock) in the middle, a narration column
+   at the right; the router explainer and provenance follow below. */
+:root {
+  --bg: #eef1f4;
+  --panel: #fbfcfd;
+  --ink: #111820;
+  --ink2: #3f4a58;
+  --muted: #6b7686;
+  --line: #cfd6df;
+  --line2: #e2e7ed;
+  --router: #e6ebf1;
+  --router-edge: #b5bfcc;
+  --slot: #f7f9fb;
+  --c0: #2a78d6;   /* REQ / data        (reference palette slot 1) */
+  --c1: #eb6834;   /* SNP               (slot 2) */
+  --c2: #1baf7a;   /* RSP               (slot 3) */
+  --c3: #eda100;   /* to the black hole (slot 4) */
+  --crit: #c4313b;
+  --crit-bg: #fbe9ea;
+  --good: #2c7a45;
+  --good-bg: #e5f3e9;
+  --focus: #1b5fb3;
+  --f-display: "IBM Plex Sans Condensed", "Arial Narrow", system-ui, sans-serif;
+  --f-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e1217; --panel: #151b22; --ink: #e9edf2; --ink2: #b4bdc9; --muted: #808b9a;
+    --line: #2c3540; --line2: #212931; --router: #1c242d; --router-edge: #3a4552; --slot: #10151b;
+    --c0: #3987e5; --c1: #d95926; --c2: #199e70; --c3: #c98500;
+    --crit: #f06269; --crit-bg: #3a1d21; --good: #62c17f; --good-bg: #17301f; --focus: #7fb2f0;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e1217; --panel: #151b22; --ink: #e9edf2; --ink2: #b4bdc9; --muted: #808b9a;
+  --line: #2c3540; --line2: #212931; --router: #1c242d; --router-edge: #3a4552; --slot: #10151b;
+  --c0: #3987e5; --c1: #d95926; --c2: #199e70; --c3: #c98500;
+  --crit: #f06269; --crit-bg: #3a1d21; --good: #62c17f; --good-bg: #17301f; --focus: #7fb2f0;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font: 15px/1.55 var(--f-body); }
+.page { max-width: 1320px; margin: 0 auto; padding-inline: 20px; padding-block: 28px 56px; display: grid; gap: 22px; }
+h1, h2, h3 { font-family: var(--f-display); text-wrap: balance; margin: 0; letter-spacing: 0.005em; }
+h1 { font-size: 2.15rem; font-weight: 600; line-height: 1.1; }
+h2 { font-size: 1.2rem; font-weight: 600; }
+h3 { font-size: 1.02rem; font-weight: 600; }
+p { margin: 0; }
+.mono, .num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
+.eyebrow { font: 500 0.74rem/1.3 var(--f-mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.lede { color: var(--ink2); max-width: 70ch; }
+header.top { display: grid; gap: 8px; }
+
+/* scenario tabs */
+.tabs { display: flex; flex-wrap: wrap; gap: 6px; border-bottom: 1px solid var(--line); padding-bottom: 10px; }
+.tab { font: 500 0.92rem var(--f-body); color: var(--ink2); background: transparent; border: 1px solid var(--line); border-radius: 6px; padding: 7px 14px; cursor: pointer; }
+.tab:hover { border-color: var(--muted); color: var(--ink); }
+.tab[aria-selected="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.tab .sub { font-weight: 400; opacity: 0.75; margin-left: 6px; font-size: 0.82rem; }
+button:focus-visible, select:focus-visible, input:focus-visible, .mesh:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+/* transport */
+.controls { display: grid; grid-template-columns: auto auto 1fr; align-items: center; gap: 10px 18px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; }
+.btns { display: flex; gap: 6px; align-items: center; }
+.icon-btn { width: 36px; height: 34px; display: grid; place-items: center; border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 6px; cursor: pointer; }
+.icon-btn:hover { border-color: var(--muted); }
+.icon-btn svg { width: 16px; height: 16px; fill: currentColor; }
+.play { width: auto; padding: 0 14px 0 11px; gap: 7px; display: inline-flex; align-items: center; background: var(--ink); color: var(--bg); border-color: var(--ink); font: 500 0.9rem var(--f-body); }
+.play:hover { border-color: var(--ink); opacity: 0.9; }
+.speed { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 0.85rem; }
+.speed select { font: 0.85rem var(--f-body); color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 5px 6px; }
+.clock { display: flex; align-items: baseline; gap: 10px; justify-content: flex-end; flex-wrap: wrap; }
+.clock .now { font: 500 1.25rem var(--f-mono); font-variant-numeric: tabular-nums; }
+.clock .range { color: var(--muted); font-size: 0.82rem; }
+.scrub { grid-column: 1 / -1; position: relative; padding-bottom: 18px; }
+.scrub input { width: 100%; margin: 0; accent-color: var(--ink); }
+.marks { position: absolute; left: 0; right: 0; bottom: 0; height: 16px; pointer-events: none; }
+.mark { position: absolute; transform: translateX(-50%); font: 0.7rem var(--f-mono); color: var(--crit); white-space: nowrap; }
+.mark::before { content: ""; position: absolute; left: 50%; top: -9px; width: 1px; height: 7px; background: currentColor; }
+.mark.good { color: var(--good); }
+.mark.neutral { color: var(--muted); }
+
+/* main */
+.layout { display: grid; gap: 16px; align-items: start; }
+.layout.single { grid-template-columns: minmax(0, 700px) minmax(0, 1fr); }
+.layout.pair { grid-template-columns: minmax(0, 1fr); }
+.layout.pair .side { grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: start; }
+.panels { display: grid; grid-template-columns: repeat(var(--cols, 1), minmax(0, 1fr)); gap: 16px; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px 14px 12px; display: grid; gap: 10px; min-width: 0; }
+.panel-head { display: grid; gap: 4px; }
+.cfg { font: 0.78rem var(--f-mono); color: var(--muted); }
+.chip { display: inline-flex; align-items: center; gap: 6px; font: 500 0.8rem var(--f-body); padding: 3px 9px 3px 7px; border-radius: 99px; border: 1px solid var(--line); color: var(--ink2); width: fit-content; }
+.chip svg { width: 13px; height: 13px; fill: currentColor; flex: none; }
+.chip.crit { background: var(--crit-bg); color: var(--crit); border-color: transparent; }
+.chip.good { background: var(--good-bg); color: var(--good); border-color: transparent; }
+.mesh { width: 100%; height: auto; display: block; touch-action: manipulation; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 6px 14px; margin: 0; }
+.stats div { display: grid; gap: 0; }
+.stats dt { font-size: 0.74rem; color: var(--muted); }
+.stats dd { margin: 0; font: 500 1rem var(--f-mono); font-variant-numeric: tabular-nums; }
+.spark-wrap { display: grid; gap: 2px; }
+.spark-label { font-size: 0.74rem; color: var(--muted); }
+.spark { width: 100%; height: 56px; display: block; cursor: pointer; }
+
+/* svg mesh */
+.lane { stroke: var(--line); stroke-width: 1.4; fill: none; }
+.chev { fill: var(--line); }
+.rbox { fill: var(--router); stroke: var(--router-edge); stroke-width: 1; }
+.rbox.q { stroke: var(--crit); stroke-width: 2; }
+.rlabel { font: 500 11px var(--f-mono); fill: var(--muted); text-anchor: middle; }
+.core { fill: var(--panel); stroke: var(--router-edge); stroke-width: 1; }
+.core.bh { stroke: var(--crit); stroke-width: 2; stroke-dasharray: 3 2; }
+.core.q { fill: var(--crit-bg); stroke: var(--crit); stroke-width: 2; }
+.core.endpt { stroke: var(--ink); stroke-width: 2; }
+.clabel { font: 9px var(--f-mono); fill: var(--muted); text-anchor: middle; }
+.qlabel { font: 600 8.5px var(--f-body); fill: var(--crit); text-anchor: middle; letter-spacing: 0.04em; }
+.slot { fill: var(--slot); stroke: var(--line); stroke-width: 0.8; }
+.slot.f0, .dot.f0 { fill: var(--c0); }
+.slot.f1, .dot.f1 { fill: var(--c1); }
+.slot.f2, .dot.f2 { fill: var(--c2); }
+.slot.f3, .dot.f3 { fill: var(--c3); }
+.slot.full { stroke: var(--panel); stroke-width: 1; }
+.slot.sel, .dot.sel { stroke: var(--ink); stroke-width: 2.2; }
+.dot { stroke: var(--panel); stroke-width: 1.6; cursor: pointer; }
+.drop { stroke: var(--crit); stroke-width: 2; stroke-linecap: round; }
+.route { stroke: var(--ink); stroke-width: 2; stroke-dasharray: 5 4; fill: none; opacity: 0.55; }
+.hit { fill: transparent; cursor: pointer; }
+.lgroup { fill: none; stroke: var(--muted); stroke-width: 0.8; stroke-dasharray: 2 2; }
+
+/* side column */
+.side { display: grid; gap: 14px; min-width: 0; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; display: grid; gap: 9px; min-width: 0; }
+.card h2 { font-size: 1.02rem; }
+.storycard { gap: 6px; }
+.story { color: var(--ink2); font-size: 0.93rem; columns: 3 22em; column-gap: 32px; min-height: 7.5em; }
+.story p { break-inside: avoid; margin-bottom: 8px; }
+.story strong { color: var(--ink); font-weight: 600; }
+.phase { font: 500 0.72rem var(--f-mono); letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); }
+.legend { display: grid; gap: 6px; font-size: 0.86rem; color: var(--ink2); }
+.legend .row { display: flex; align-items: center; gap: 9px; }
+.sw { width: 12px; height: 12px; border-radius: 3px; flex: none; }
+.sw.f0 { background: var(--c0); } .sw.f1 { background: var(--c1); } .sw.f2 { background: var(--c2); } .sw.f3 { background: var(--c3); }
+.sw.empty { background: var(--slot); border: 1px solid var(--line); }
+.sw.dotsw { border-radius: 50%; background: var(--ink2); }
+.hint { font-size: 0.82rem; color: var(--muted); }
+.flit h3 { font-family: var(--f-mono); font-size: 0.95rem; font-weight: 500; }
+.flit dl { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; margin: 0; font-size: 0.86rem; }
+.flit dt { color: var(--muted); }
+.flit dd { margin: 0; font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
+.hops { list-style: none; margin: 0; padding: 0; font: 0.8rem/1.5 var(--f-mono); color: var(--ink2); max-height: 190px; overflow-y: auto; border-top: 1px solid var(--line2); padding-top: 6px; }
+.hops li { display: grid; grid-template-columns: 4.2em 1fr; gap: 8px; cursor: pointer; border-radius: 4px; padding: 0 4px; }
+.hops li:hover { background: var(--line2); }
+.hops li.now { color: var(--ink); font-weight: 500; }
+.linkish { font: inherit; color: var(--focus); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.verdict { font: 0.74rem/1.45 var(--f-mono); color: var(--ink2); white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
+.verdict b { font-weight: 500; color: var(--ink); }
+
+/* explainer */
+.explain { display: grid; gap: 14px; padding-top: 10px; border-top: 1px solid var(--line); }
+.explain > p { color: var(--ink2); max-width: 75ch; }
+.pipe { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.stage { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 13px 15px; display: grid; gap: 6px; align-content: start; position: relative; }
+.stage .when { font: 500 0.72rem var(--f-mono); letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); }
+.stage p { font-size: 0.9rem; color: var(--ink2); }
+.figs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.fig { display: grid; gap: 2px; padding: 10px 0; border-top: 2px solid var(--ink); }
+.fig .v { font: 500 1.35rem var(--f-mono); font-variant-numeric: tabular-nums; }
+.fig .k { font-size: 0.82rem; color: var(--ink2); }
+.two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+.two ul { margin: 0; padding-left: 1.1em; color: var(--ink2); font-size: 0.9rem; display: grid; gap: 4px; }
+.two code, .explain code { font: 0.84em var(--f-mono); }
+
+.tip { position: fixed; z-index: 10; pointer-events: none; background: var(--ink); color: var(--bg); font: 0.8rem/1.45 var(--f-body); padding: 7px 10px; border-radius: 6px; max-width: 280px; box-shadow: 0 4px 14px rgba(0,0,0,0.18); }
+.tip .t { font: 500 0.82rem var(--f-mono); }
+
+@media (max-width: 1080px) {
+  .layout.single, .layout.pair { grid-template-columns: minmax(0, 1fr); }
+  .layout.single .side, .layout.pair .side { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+}
+@media (max-width: 760px) {
+  .panels { grid-template-columns: minmax(0, 1fr); }
+  .pipe, .figs, .two { grid-template-columns: minmax(0, 1fr); }
+  .figs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .controls { grid-template-columns: 1fr; }
+  .clock { justify-content: flex-start; }
+  h1 { font-size: 1.75rem; }
+  .page { padding-inline: 16px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  * { scroll-behavior: auto !important; }
+}
+</style>
+<!-- /head -->
+<div class="page">
+  <header class="top">
+    <p class="eyebrow">3×3 mesh · two-stage virtual-channel router (M8) · replayed from RTL simulation</p>
+    <h1>NoC Mesh Replay</h1>
+    <p class="lede">Every flit you see here moved because the SystemVerilog router moved it. Icarus Verilog ran the real RTL; each router's ports and every buffer's contents were sampled at each rising clock edge and replayed here cycle by cycle. Pick a scenario, press play, and click any flit to follow it across the mesh.</p>
+  </header>
+
+  <nav class="tabs" role="tablist" aria-label="Scenario" id="tabs"></nav>
+
+  <section class="controls" aria-label="Playback">
+    <div class="btns">
+      <button class="icon-btn" id="bStart" title="First cycle" aria-label="Go to first cycle"><svg viewBox="0 0 16 16"><path d="M3 2h2v12H3zM14 2v12L6 8z"/></svg></button>
+      <button class="icon-btn" id="bBack" title="Step back (←)" aria-label="Step back one cycle"><svg viewBox="0 0 16 16"><path d="M12 2v12L4 8z"/></svg></button>
+      <button class="icon-btn play" id="bPlay" aria-label="Play"><svg viewBox="0 0 16 16" id="playIcon"><path d="M4 2l10 6-10 6z"/></svg><span id="playText">Play</span></button>
+      <button class="icon-btn" id="bFwd" title="Step forward (→)" aria-label="Step forward one cycle"><svg viewBox="0 0 16 16"><path d="M4 2v12l8-6z"/></svg></button>
+    </div>
+    <label class="speed" for="speed">Speed
+      <select id="speed">
+        <option value="1">1 cycle/s</option>
+        <option value="3">3 cycles/s</option>
+        <option value="8">8 cycles/s</option>
+        <option value="20">20 cycles/s</option>
+        <option value="60">60 cycles/s</option>
+      </select>
+    </label>
+    <div class="clock"><span class="now" id="cycNow">cycle 0</span><span class="range" id="cycRange"></span></div>
+    <div class="scrub">
+      <input type="range" id="scrub" min="0" max="100" value="0" aria-label="Cycle">
+      <div class="marks" id="marks"></div>
+    </div>
+  </section>
+
+  <section class="card storycard" aria-live="polite">
+    <span class="phase" id="phase"></span>
+    <h2 id="storyTitle"></h2>
+    <div class="story" id="story"></div>
+  </section>
+
+  <div class="layout" id="layout">
+    <div class="panels" id="panels"></div>
+    <aside class="side">
+      <section class="card flit" id="flitCard">
+        <h2>Follow a flit</h2>
+        <div id="flitBody"><p class="hint">Click a flit on a link or in a buffer to see where it came from, where it is going, and every hop it takes.</p></div>
+      </section>
+      <section class="card">
+        <h2>Legend</h2>
+        <div class="legend" id="legend"></div>
+      </section>
+      <section class="card">
+        <h2>Testbench verdict</h2>
+        <p class="hint">Printed by the self-checking testbench for this exact run.</p>
+        <pre class="verdict" id="verdict"></pre>
+      </section>
+    </aside>
+  </div>
+
+  <section class="explain" aria-labelledby="howTitle">
+    <h2 id="howTitle">What one router does with a flit</h2>
+    <p>Each router has five ports: north, south, east, west, and local (its tile). Packets are single flits carrying a message class, source, destination and a 16-bit payload. Flow control is credit-based: a router sends on an output virtual channel (VC) only when it holds a credit for a free slot in the downstream buffer, so nothing is ever dropped for lack of space.</p>
+    <div class="pipe">
+      <div class="stage">
+        <span class="when">On arrival</span>
+        <h3>Buffer write and route</h3>
+        <p>The flit is written into the FIFO of the VC it arrived on. Its output port is computed on the way in, X first then Y, and stored next to it as a 3-bit tag, which takes route computation off the critical path.</p>
+      </div>
+      <div class="stage">
+        <span class="when">Pipeline stage 1</span>
+        <h3>Allocate</h3>
+        <p>Each waiting flit claims a free output VC inside its virtual network (round-robin). The switch allocator then matches inputs to outputs, separable input-first, with a second pass that fills ports the first pass left idle. The winner is muxed out of its VC into the pipeline register and spends one credit.</p>
+      </div>
+      <div class="stage">
+        <span class="when">Pipeline stage 2</span>
+        <h3>Traverse</h3>
+        <p>The flit crosses the 5×5 crossbar and the link, and lands in the next router's buffer at the next clock edge. When that buffer later pops it, a credit travels back upstream.</p>
+      </div>
+    </div>
+    <div class="figs">
+      <div class="fig"><span class="v">0.901</span><span class="k">peak uniform throughput, flits/node/cycle</span></div>
+      <div class="fig"><span class="v">6.0</span><span class="k">zero-load latency, cycles (uniform)</span></div>
+      <div class="fig"><span class="v">7.56 ns</span><span class="k">critical path of this hardened build, whole 3×3 mesh, sky130 typical</span></div>
+      <div class="fig"><span class="v">3</span><span class="k">virtual networks: REQ, SNP, RSP</span></div>
+    </div>
+    <p class="hint">Figures for the router in the uniform-traffic scenario (4 VCs × 2 flits, 2-pass allocator, two stages), from the M8 sweeps and synthesis.</p>
+    <div class="two">
+      <div class="card">
+        <h3>Hardened local port (SECURE=1)</h3>
+        <ul>
+          <li><strong>Source stamping.</strong> The router overwrites each injected flit's source field with its own coordinates, so a tile cannot spoof another.</li>
+          <li><strong>VN guard.</strong> A flit injected on a VC outside its class's virtual network is refused, and its credit is never returned, so a tile that cheats only starves itself.</li>
+          <li><strong>Credit-starvation watchdog.</strong> If a tile leaves delivered flits waiting with no credit back for 256 cycles, the router quarantines it and discards traffic addressed to it.</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>Where this data comes from</h3>
+        <ul>
+          <li><code>visualizer/tools/make_scenarios.sh</code> compiles the M8 RTL with the M5/M6 testbenches and runs each scenario in Icarus Verilog. A run is used only if its testbench prints the expected PASS line.</li>
+          <li><code>tools/vcd2json.py</code> samples every router port and every FIFO's contents just before each rising edge.</li>
+          <li><code>tools/check_replay.py</code> rejects the data unless every link handoff lands in the right downstream VC one cycle later, every hop follows XY routing, no flit leaves its virtual network, and no FIFO exceeds its depth.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="tip" id="tip" hidden></div>
+
+<script src="data/scenarios.js"></script>
+<script>
+(() => {
+"use strict";
+const DATA = window.NOC_SCENARIOS || {};
+const PORTS = ["N", "S", "E", "W", "L"];
+const PORT_NAME = ["north", "south", "east", "west", "local"];
+const CLASS_NAME = ["REQ", "SNP", "RSP"];
+const reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+const SVGNS = "http://www.w3.org/2000/svg";
+
+// make_scenarios.sh: the black hole starts at +BH_START=1000 on tile 4
+const BH_START = 1000;
+
+const GROUPS = [
+  { id: "uniform", label: "Uniform traffic", sub: "steady state", speed: 3, start: 12,
+    variants: [{ key: "uniform", title: "Hardened router, uniform random traffic" }] },
+  { id: "deadlock", label: "Protocol deadlock", sub: "shared buffers vs. virtual networks", speed: 8, start: 0,
+    variants: [{ key: "deadlock", title: "All classes share one VN" }, { key: "vns", title: "One VN per message class" }] },
+  { id: "blackhole", label: "Black-hole attack", sub: "unprotected vs. hardened", speed: 20, start: 20,
+    variants: [{ key: "bh_open", title: "Unprotected (SECURE=0)" }, { key: "bh_secure", title: "Hardened (SECURE=1)" }] },
+];
+
+// ---------- geometry (SVG user units) ----------
+const SP = 8.5, R = 134, PITCH = 198, LA = 58, LB = 76, G = 5, CORE = 40, COFF = 16;
+
+function rxy(r, W) { return [r % W, Math.floor(r / W)]; }
+function rname(r, W) { const [x, y] = rxy(r, W); return `(${x},${y})`; }
+
+// top-left corner of slot i (0 = head) of input port p, VC v, inside router box
+function slotXY(p, v, i, nv, D) {
+  const across = (c) => c - nv * SP / 2 + v * SP;
+  switch (p) {
+    case 0: return [across(LA), G + (D - 1 - i) * SP];             // north input: flows down, head at bottom
+    case 1: return [across(LB), R - G - D * SP + i * SP];          // south input: flows up, head at top
+    case 2: return [R - G - D * SP + i * SP, across(LB)];          // east input: flows left, head at left
+    case 3: return [G + (D - 1 - i) * SP, across(LA)];             // west input: flows right, head at right
+    default: return [R - G - nv * SP + v * SP, R - G - D * SP + i * SP]; // local input (bottom-right corner): from the tile, flows up, head at top
+  }
+}
+
+// ---------- data prep ----------
+function prep(key) {
+  const d = DATA[key];
+  if (!d) return null;
+  const cfg = d.cfg, W = cfg.mesh_w, H = cfg.mesh_h, nv = cfg.num_vcs, N = d.frames.length;
+  const last = d.frames[N - 1];
+  const off = (d.first_cycle + N - 1) - last.s.cycle_num;       // clock edges since time 0 minus the testbench's cycle counter
+  const tb = (i) => d.first_cycle + i - off;
+  const buf = new Array(N), rx = new Array(N), alarm = new Array(N);
+  const ej = new Float32Array(N), inBuf = new Int32Array(N), delivered = new Int32Array(N), dropped = new Int32Array(N);
+  const hops = new Map();
+  let cur = {}, curRx = {}, cumE = 0, cumX = 0, lastActive = 0;
+  const bh = (last.s.blackhole !== undefined && last.s.blackhole >= 0) ? last.s.blackhole : -1;
+  const victimEj = new Float32Array(N);
+  for (let i = 0; i < N; i++) {
+    const fr = d.frames[i];
+    if (fr.b) { cur = Object.assign({}, cur); for (const e of fr.b) { if (e.length > 1) cur[e[0]] = e.slice(1); else delete cur[e[0]]; } }
+    if (fr.r) { curRx = Object.assign({}, curRx); for (const e of fr.r) { if (e.length > 1) curRx[e[0]] = e.slice(1); else delete curRx[e[0]]; } }
+    buf[i] = cur; rx[i] = curRx;
+    let n = 0; for (const k in cur) n += cur[k].length; inBuf[i] = n;
+    const es = fr.e || [];
+    ej[i] = es.length;
+    victimEj[i] = es.filter((e) => e[0] !== bh).length;
+    cumE += es.length; delivered[i] = cumE;
+    cumX += (fr.x || []).length; dropped[i] = cumX;
+    const a = {}; for (const [r, al, q] of fr.a || []) a[r] = { al, q }; alarm[i] = a;
+    for (const m of fr.m || []) { if (!hops.has(m[3])) hops.set(m[3], []); hops.get(m[3]).push({ i, r: m[0], p: m[1], vc: m[2] }); }
+    for (const e of es) { if (!hops.has(e[1])) hops.set(e[1], []); hops.get(e[1]).push({ i, r: e[0], p: 4, vc: e[2] }); }
+    if ((fr.m && fr.m.length) || es.length || (fr.i && fr.i.length)) lastActive = i;
+  }
+  const qFirst = (() => { for (let i = 0; i < N; i++) for (const r in alarm[i]) if (alarm[i][r].q) return i; return -1; })();
+  const pk = d.packets.map((p) => ({ cls: p[0], src: p[1], dst: p[2], pay: p[3], inj: p[4] == null ? null : p[4] - d.first_cycle, ej: p[5] == null ? null : p[5] - d.first_cycle, drop: p[6] == null ? null : p[6] - d.first_cycle }));
+  return { key, d, cfg, W, H, nv, N, tb, buf, rx, alarm, ej, victimEj, inBuf, delivered, dropped, hops, pk, lastActive, qFirst, bh, proto: cfg.tb === "protocol_tb" };
+}
+
+const SCN = {};
+for (const g of GROUPS) for (const v of g.variants) SCN[v.key] = prep(v.key);
+
+function flitClass(s, u) {
+  const p = s.pk[u];
+  if (s.proto) return "f" + p.cls;
+  if (s.bh >= 0 && p.dst === s.bh) return "f3";
+  return "f0";
+}
+function flitKind(s, u) {
+  const p = s.pk[u];
+  if (s.proto) return CLASS_NAME[p.cls] || ("class " + p.cls);
+  if (s.bh >= 0 && p.dst === s.bh) return "packet for the black hole";
+  return "packet";
+}
+
+// ---------- state ----------
+const st = { g: GROUPS[0], idx: 0, t: 0, playing: false, speed: 3, sel: null, panels: [] };
+
+// ---------- DOM helpers ----------
+const $ = (id) => document.getElementById(id);
+function el(tag, attrs, parent) {
+  const e = document.createElementNS(SVGNS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  if (parent) parent.appendChild(e);
+  return e;
+}
+function h(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+
+const ICON = {
+  crit: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1 15 14H1zM7.2 6v4h1.6V6zm0 5.2v1.6h1.6v-1.6z"/></svg>',
+  good: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1a7 7 0 1 1 0 14A7 7 0 0 1 8 1zm3.3 4.3L7 9.6 4.9 7.5 3.8 8.6 7 11.8l5.4-5.4z"/></svg>',
+  flow: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M1 7h9V4l5 4-5 4V9H1z"/></svg>',
+  wait: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1a7 7 0 1 1 0 14A7 7 0 0 1 8 1zm-.8 3v4.6l3.4 2 .8-1.3-2.6-1.6V4z"/></svg>',
+};
+
+// ---------- build one mesh panel ----------
+function buildPanel(s, title) {
+  const art = h("article", "panel");
+  const head = h("div", "panel-head");
+  head.appendChild(h("h3", null, title));
+  const c = s.cfg;
+  const cfgText = `${c.num_vns} VN${c.num_vns > 1 ? "s" : ""} · ${c.vcs_per_vn > 1 ? c.vcs_per_vn + " VCs" : "1 VC"}${c.num_vns > 1 ? "/VN" : ""} × ${c.depth} flits · ${c.sa_iters}-pass SA · ${c.pipe ? "2-stage" : "1-stage"} · security ${c.secure ? "on" : "off"}`;
+  head.appendChild(h("p", "cfg", cfgText));
+  art.appendChild(head);
+  const chip = h("span", "chip");
+  art.appendChild(chip);
+
+  const size = (s.W - 1) * PITCH + R + COFF + CORE + 8;
+  const svg = el("svg", { class: "mesh", viewBox: `-12 -12 ${size + 24} ${(s.H - 1) * PITCH + R + COFF + CORE + 32}`, role: "img", "aria-label": `${s.W} by ${s.H} mesh: ${title}` });
+  art.appendChild(svg);
+  const gLinks = el("g", {}, svg), gRoute = el("g", {}, svg), gR = el("g", {}, svg), gDots = el("g", {}, svg);
+
+  // links: two unidirectional lanes per neighbor pair, with a chevron showing direction
+  const chev = (x, y, dir) => {
+    const d = { E: "M-3,-3.5 L3,0 L-3,3.5z", W: "M3,-3.5 L-3,0 L3,3.5z", S: "M-3.5,-3 L0,3 L3.5,-3z", N: "M-3.5,3 L0,-3 L3.5,3z" }[dir];
+    el("path", { d, class: "chev", transform: `translate(${x},${y})` }, gLinks);
+  };
+  for (let y = 0; y < s.H; y++) for (let x = 0; x < s.W; x++) {
+    const ox = x * PITCH, oy = y * PITCH;
+    if (x < s.W - 1) {
+      el("line", { x1: ox + R, y1: oy + LA, x2: ox + PITCH, y2: oy + LA, class: "lane" }, gLinks); chev(ox + (R + PITCH) / 2, oy + LA, "E");
+      el("line", { x1: ox + R, y1: oy + LB, x2: ox + PITCH, y2: oy + LB, class: "lane" }, gLinks); chev(ox + (R + PITCH) / 2, oy + LB, "W");
+    }
+    if (y < s.H - 1) {
+      el("line", { x1: ox + LA, y1: oy + R, x2: ox + LA, y2: oy + PITCH, class: "lane" }, gLinks); chev(ox + LA, oy + (R + PITCH) / 2, "S");
+      el("line", { x1: ox + LB, y1: oy + R, x2: ox + LB, y2: oy + PITCH, class: "lane" }, gLinks); chev(ox + LB, oy + (R + PITCH) / 2, "N");
+    }
+    // local link router <-> tile
+    el("line", { x1: ox + R - 2, y1: oy + R - 2, x2: ox + R + COFF + 4, y2: oy + R + COFF + 4, class: "lane" }, gLinks);
+  }
+
+  const slots = {}, rboxes = [], cores = [], qlabels = [], rxSlots = {};
+  for (let r = 0; r < s.W * s.H; r++) {
+    const [x, y] = rxy(r, s.W), ox = x * PITCH, oy = y * PITCH;
+    const g = el("g", { transform: `translate(${ox},${oy})` }, gR);
+    rboxes.push(el("rect", { x: 0, y: 0, width: R, height: R, rx: 6, class: "rbox" }, g));
+    const lbl = el("text", { x: R / 2, y: R / 2 + 4, class: "rlabel" }, g); lbl.textContent = `(${x},${y})`;
+    // the local input's buffers get a dashed outline: they hold what this router's own tile injected
+    { const [lx, ly] = slotXY(4, 0, s.cfg.depth - 1, s.nv, s.cfg.depth);
+      el("rect", { x: lx - 2.5, y: ly - 2.5, width: s.nv * SP + 5, height: s.cfg.depth * SP + 5, rx: 3, class: "lgroup" }, g); }
+    const edge = [y === 0, y === s.H - 1, x === s.W - 1, x === 0, false];   // ports on the mesh boundary have no link
+    for (let p = 0; p < 5; p++) for (let v = 0; v < s.nv; v++) {
+      const key = (r * 5 + p) * s.nv + v;
+      slots[key] = [];
+      for (let i = 0; i < s.cfg.depth; i++) {
+        const [sx, sy] = slotXY(p, v, i, s.nv, s.cfg.depth);
+        const rect = el("rect", { x: sx + 0.75, y: sy + 0.75, width: SP - 1.5, height: SP - 1.5, rx: 1.6, class: "slot" }, g);
+        rect.dataset.k = key; rect.dataset.i = i; rect.dataset.r = r; rect.dataset.p = p; rect.dataset.v = v;
+        if (edge[p]) rect.style.opacity = "0.3";
+        slots[key].push(rect);
+      }
+    }
+    // the tile (endpoint) hanging off the local port
+    const cg = el("g", { transform: `translate(${ox + R + COFF},${oy + R + COFF})` }, gR);
+    const core = el("rect", { x: 0, y: 0, width: CORE, height: CORE, rx: 4, class: "core" }, cg);
+    core.dataset.tile = r;
+    cores.push(core);
+    const t = el("text", { x: CORE / 2, y: 11, class: "clabel" }, cg); t.textContent = "tile " + r;
+    const ql = el("text", { x: CORE / 2, y: CORE + 10, class: "qlabel" }, cg); ql.textContent = ""; qlabels.push(ql);
+    if (s.proto) {  // endpoint receive queues: one row per VC
+      const d = s.cfg.depth, w = 6.5;
+      for (let v = 0; v < s.nv; v++) {
+        rxSlots[r * s.nv + v] = [];
+        for (let i = 0; i < d; i++) {
+          const rect = el("rect", { x: (CORE - d * w) / 2 + i * w + 0.5, y: 16 + v * w + 0.5, width: w - 1, height: w - 1, rx: 1.2, class: "slot" }, cg);
+          rect.dataset.rx = r * s.nv + v; rect.dataset.i = i; rect.dataset.tile = r;
+          rxSlots[r * s.nv + v].push(rect);
+        }
+      }
+    }
+  }
+
+  // sparkline: delivered flits/node/cycle, 10-cycle trailing average
+  const sw = h("div", "spark-wrap");
+  const sl = h("span", "spark-label", "Delivered, flits per node per cycle (10-cycle average) · click to jump");
+  sw.appendChild(sl);
+  const spark = el("svg", { class: "spark", viewBox: "0 0 400 56", preserveAspectRatio: "none", role: "img", "aria-label": "Delivered throughput over the replay" });
+  sw.appendChild(spark);
+  art.appendChild(sw);
+
+  const stats = h("dl", "stats");
+  art.appendChild(stats);
+
+  const panel = { s, art, svg, gDots, gRoute, slots, rxSlots, rboxes, cores, qlabels, chip, spark, stats, dotPool: [], dropPool: [], last: {} };
+  wirePointer(panel);
+  return panel;
+}
+
+function drawSpark(panel, ymax, offered) {
+  const { s, spark } = panel;
+  spark.textContent = "";
+  const N = s.N, n = s.W * s.H, win = 10;
+  const pts = [];
+  let acc = 0;
+  for (let i = 0; i < N; i++) {
+    acc += s.ej[i]; if (i >= win) acc -= s.ej[i - win];
+    const v = acc / Math.min(i + 1, win) / n;
+    pts.push(`${(i / (N - 1) * 400).toFixed(1)},${(52 - v / ymax * 46).toFixed(1)}`);
+  }
+  el("line", { x1: 0, y1: 52, x2: 400, y2: 52, stroke: "var(--line)", "stroke-width": 1, "vector-effect": "non-scaling-stroke" }, spark);
+  if (offered) {
+    const y = 52 - offered / ymax * 46;
+    el("line", { x1: 0, y1: y, x2: 400, y2: y, stroke: "var(--muted)", "stroke-width": 1, "stroke-dasharray": "3 3", "vector-effect": "non-scaling-stroke" }, spark);
+  }
+  el("polyline", { points: pts.join(" "), fill: "none", stroke: "var(--ink2)", "stroke-width": 1.6, "stroke-linejoin": "round", "vector-effect": "non-scaling-stroke" }, spark);
+  panel.cursor = el("line", { x1: 0, y1: 0, x2: 0, y2: 56, stroke: "var(--ink)", "stroke-width": 1.5, "vector-effect": "non-scaling-stroke" }, spark);
+  spark.onclick = (ev) => { const b = spark.getBoundingClientRect(); seek(Math.round((ev.clientX - b.left) / b.width * (N - 1))); };
+}
+
+// ---------- per-cycle rendering ----------
+function renderFrame() {
+  const i = st.idx;
+  for (const P of st.panels) {
+    const s = P.s;
+    const buf = s.buf[i];
+    // input buffers
+    for (const key in P.slots) {
+      const cont = buf[key] || [];
+      const arr = P.slots[key];
+      for (let j = 0; j < arr.length; j++) {
+        const u = j < cont.length ? cont[j] : -1;
+        const sel = st.sel && st.sel.panel === P && st.sel.u === u;
+        const tag = u + (sel ? "s" : "");
+        if (arr[j]._tag === tag) continue;
+        arr[j]._tag = tag;
+        arr[j].setAttribute("class", u < 0 ? "slot" : `slot full ${flitClass(s, u)}${sel ? " sel" : ""}`);
+      }
+    }
+    // endpoint receive queues
+    const rx = s.rx[i];
+    for (const key in P.rxSlots) {
+      const cont = rx[key] || [];
+      const arr = P.rxSlots[key];
+      for (let j = 0; j < arr.length; j++) {
+        const u = j < cont.length ? cont[j] : -1;
+        const sel = st.sel && st.sel.panel === P && st.sel.u === u;
+        const tag = u + (sel ? "s" : "");
+        if (arr[j]._tag === tag) continue;
+        arr[j]._tag = tag;
+        arr[j].setAttribute("class", u < 0 ? "slot" : `slot full ${flitClass(s, u)}${sel ? " sel" : ""}`);
+      }
+    }
+    // security state
+    const tbc = s.tb(i);
+    for (let r = 0; r < s.W * s.H; r++) {
+      const a = s.alarm[i][r];
+      const q = a && a.q;
+      const isBh = r === s.bh && tbc >= BH_START;
+      P.rboxes[r].setAttribute("class", q ? "rbox q" : "rbox");
+      let cls = "core";
+      if (q) cls += " q"; else if (isBh) cls += " bh";
+      if (st.sel && st.sel.panel === P) { const p = s.pk[st.sel.u]; if (p.src === r || p.dst === r) cls += " endpt"; }
+      P.cores[r].setAttribute("class", cls);
+      P.qlabels[r].textContent = q ? "QUARANTINED" : (isBh ? "BLACK HOLE" : "");
+    }
+    // stats + status chip
+    renderStats(P, i);
+    if (P.cursor) { const x = (i / (s.N - 1) * 400).toFixed(1); P.cursor.setAttribute("x1", x); P.cursor.setAttribute("x2", x); }
+  }
+  $("cycNow").textContent = cycleLabel(st.panels[0].s, i);
+  $("scrub").value = i;
+  renderStory();
+  renderFlitCard();
+}
+
+function cycleLabel(s, i) { const c = s.tb(i); return c < 0 ? "reset" : "cycle " + c; }
+
+function renderStats(P, i) {
+  const s = P.s, fr = s.d.frames[i], tbc = s.tb(i);
+  const rows = [["Flits in buffers", s.inBuf[i]], ["Delivered since " + Math.max(0, s.tb(0)), s.delivered[i]]];
+  if (s.proto) rows.push(["Transactions done", `${fr.s.completed ?? 0} / ${fr.s.started ?? 0}`]);
+  if (s.bh >= 0) rows.push(["Discarded by watchdog", s.dropped[i]]);
+  P.stats.textContent = "";
+  for (const [k, v] of rows) { const d = h("div"); d.appendChild(h("dt", null, k)); d.appendChild(h("dd", null, String(v))); P.stats.appendChild(d); }
+
+  let kind = "", text = "", icon = ICON.flow;
+  if (s.key === "deadlock" && i > s.lastActive) { kind = "crit"; icon = ICON.crit; text = `Deadlocked: nothing has moved after cycle ${s.tb(s.lastActive)}`; }
+  else if (s.bh >= 0 && s.qFirst >= 0 && i >= s.qFirst) { kind = "good"; icon = ICON.good; text = `Contained: tile ${s.bh} quarantined at cycle ${s.tb(s.qFirst)}`; }
+  else if (s.bh >= 0 && tbc >= BH_START) {
+    kind = "crit"; icon = ICON.crit;
+    text = s.cfg.secure ? `Tile ${s.bh} stopped accepting · watchdog armed (${s.cfg.wd_limit} cycles)` : `Tile ${s.bh} stopped accepting · no defense`;
+  }
+  else { text = "Flowing"; }
+  P.chip.className = "chip" + (kind ? " " + kind : "");
+  P.chip.innerHTML = icon + "<span></span>";
+  P.chip.lastChild.textContent = text;
+}
+
+// ---------- flits in motion (interpolated within the cycle) ----------
+function lerp(a, b, t) { return a + (b - a) * t; }
+function linkPath(s, r, p) {
+  const [x, y] = rxy(r, s.W), ox = x * PITCH, oy = y * PITCH;
+  switch (p) {
+    case 2: return [ox + R, oy + LA, ox + PITCH, oy + LA];
+    case 3: return [ox, oy + LB, ox - PITCH + R, oy + LB];
+    case 1: return [ox + LA, oy + R, ox + LA, oy + PITCH];
+    default: return [ox + LB, oy, ox + LB, oy - PITCH + R];
+  }
+}
+function getDot(P, n) {
+  while (P.dotPool.length <= n) {
+    const c = el("circle", { r: 5.5, class: "dot" }, P.gDots);
+    P.dotPool.push(c);
+  }
+  return P.dotPool[n];
+}
+function getDrop(P, n) {
+  while (P.dropPool.length <= n) {
+    const g = el("g", { class: "drop" }, P.gDots);
+    el("path", { d: "M-4,-4L4,4M4,-4L-4,4" }, g);
+    P.dropPool.push(g);
+  }
+  return P.dropPool[n];
+}
+function renderDots() {
+  const i = st.idx, t = reduceMotion ? 0.5 : st.t;
+  for (const P of st.panels) {
+    const s = P.s, fr = s.d.frames[i];
+    let n = 0, nd = 0;
+    const place = (u, x, y) => {
+      const c = getDot(P, n++);
+      c.setAttribute("cx", x.toFixed(1)); c.setAttribute("cy", y.toFixed(1));
+      const sel = st.sel && st.sel.panel === P && st.sel.u === u;
+      c.setAttribute("class", `dot ${flitClass(s, u)}${sel ? " sel" : ""}`);
+      c.dataset.u = u;
+      c.style.display = "";
+    };
+    if (i < s.N - 1) {
+      for (const [r, p, , u] of fr.m || []) { const [x1, y1, x2, y2] = linkPath(s, r, p); place(u, lerp(x1, x2, t), lerp(y1, y2, t)); }
+      for (const [r, u] of fr.e || []) {
+        const [x, y] = rxy(r, s.W), ox = x * PITCH, oy = y * PITCH;
+        place(u, lerp(ox + R - 6, ox + R + COFF + CORE / 2, t), lerp(oy + R - 6, oy + R + COFF + CORE / 2, t));
+      }
+      for (const [r, u] of fr.i || []) {
+        const [x, y] = rxy(r, s.W), ox = x * PITCH, oy = y * PITCH;
+        const lx = ox + R - G - s.nv * SP / 2, ly = oy + R - G;
+        place(u, lerp(ox + R + COFF + CORE / 2, lx, t), lerp(oy + R + COFF + CORE / 2, ly, t));
+      }
+      for (const [r] of fr.x || []) {
+        const [x, y] = rxy(r, s.W), ox = x * PITCH, oy = y * PITCH;
+        const g = getDrop(P, nd++);
+        g.setAttribute("transform", `translate(${(ox + R + 6 + t * 4).toFixed(1)},${(oy + R + 6 + t * 4).toFixed(1)})`);
+        g.style.opacity = String(1 - 0.6 * t);
+        g.style.display = "";
+      }
+    }
+    for (let k = n; k < P.dotPool.length; k++) P.dotPool[k].style.display = "none";
+    for (let k = nd; k < P.dropPool.length; k++) P.dropPool[k].style.display = "none";
+  }
+}
+
+// ---------- narration ----------
+function pct(x) { return x.toFixed(2); }
+function rate(arr, a, b, n) { let s = 0; for (let i = a; i < b; i++) s += arr[i]; return b > a ? s / (b - a) / n : 0; }
+function renderStory() {
+  const g = st.g, i = st.idx;
+  let phase = "", title = "", body = [];
+  if (g.id === "uniform") {
+    const s = SCN.uniform;
+    const lats = s.pk.filter((p) => p.inj != null && p.ej != null).map((p) => p.ej - p.inj);
+    const avg = lats.reduce((a, b) => a + b, 0) / Math.max(1, lats.length);
+    phase = "Steady state";
+    title = "Uniform random traffic at 0.40 flits/node/cycle";
+    body = [
+      `Each of the nine tiles sends single-flit packets to random destinations, 0.40 per cycle on average. That is under half of what this router sustains (0.901), so buffers stay shallow and almost every flit moves every cycle it can.`,
+      `Routing is dimension-order: a flit first travels along X to its destination column, then along Y. Its path is fixed by its source and destination, and because no flit ever turns from Y back to X, the routes alone can never form a cycle of waiting buffers.`,
+      `Each input has 4 VCs of 2 flits. A blocked flit only blocks its own VC; the others can pass it. Average injection-to-delivery latency in this window: <strong>${avg.toFixed(1)} cycles</strong> over ${lats.length} flits.`,
+    ];
+  } else if (g.id === "deadlock") {
+    const a = SCN.deadlock, b = SCN.vns;
+    const F = a.lastActive + 1, Fc = a.tb(a.lastActive);   // last cycle anything moved
+    const stuck = [0, 0, 0];
+    const fb = a.buf[a.N - 1];
+    for (const k in fb) for (const u of fb[k]) stuck[a.pk[u].cls]++;
+    const done = b.d.frames[i].s.completed ?? 0, doneA = a.d.frames[i].s.completed ?? 0;
+    if (i < F - 45) {
+      phase = "Both meshes running";
+      title = "A three-message coherence protocol";
+      body = [
+        `Each tile runs a coherence agent and keeps up to 12 transactions in flight. A <strong>request (REQ)</strong> goes to the line's home tile, the home <strong>snoops (SNP)</strong> the current owner, and the owner sends a <strong>response (RSP)</strong> back to the requester.`,
+        `A tile accepts a REQ only when it has room to queue the SNP it causes, and a SNP only when it can queue the RSP. That dependency is the whole story.`,
+        `Left, all three classes share the same buffers. Right, each class has its own virtual network (VC). Same seed, same traffic.`,
+      ];
+    } else if (i < F) {
+      phase = "Left mesh filling up";
+      title = "REQs crowd the shared buffers";
+      body = [
+        `On the left, REQs keep arriving at home tiles that cannot take them until their SNPs leave, and those SNPs need buffer slots that are full of other REQs.`,
+        `RSPs would always be accepted, but in shared buffers they wait behind REQs in the same FIFOs. Watch the left mesh's buffers turn solid.`,
+      ];
+    } else {
+      phase = "Left mesh deadlocked";
+      title = `Nothing moves on the left after cycle ${Fc}`;
+      body = [
+        `Every message on the left now waits for a buffer that another waiting message holds. ${stuck[0]} REQs, ${stuck[1]} SNPs and ${stuck[2]} RSPs are frozen in router buffers. The testbench declares deadlock after 500 idle cycles; ${(SCN.deadlock.d.log.find((l) => l.startsWith("DEADLOCK")) || "").replace(/^.*?;\s*/, "")}`,
+        `On the right, an RSP never waits behind a REQ, so responses always drain; that frees snoops, which frees requests. <strong>${done}</strong> transactions done by this cycle on the right, ${doneA} on the left.`,
+        `Extra buffering alone does not fix it: in the M5 study, three shared VCs per port still deadlocked at 32 outstanding transactions. Separate virtual networks never did.`,
+      ];
+    }
+  } else {
+    const a = SCN.bh_open, b = SCN.bh_secure;
+    const tbc = a.tb(i), q = b.qFirst, qc = b.tb(q), n = a.W * a.H;
+    const startIdx = BH_START - a.tb(0);
+    const before = rate(a.victimEj, 0, startIdx, n);
+    if (tbc < BH_START) {
+      phase = "Before the attack";
+      title = "Uniform traffic at 0.20 flits/node/cycle";
+      body = [
+        `Both meshes carry the same traffic. At cycle ${BH_START}, tile 4 at (1,1) is compromised and stops accepting packets. Its router can then never get a credit back on the local port.`,
+        `Packets addressed to tile 4 are drawn in amber; everyone else's traffic in blue.`,
+      ];
+    } else if (i < q) {
+      phase = "Attack under way";
+      title = "Tile 4 has become a black hole";
+      body = [
+        `Amber packets for tile 4 fill its receive side, then back up into the center router's input VCs. Blue traffic that only passes through (1,1) now waits behind them for the same VCs.`,
+        `The hardened router's watchdog counts cycles in which flits wait for the local port with no credit coming back. It fires at ${b.cfg.wd_limit}; honest tiles in the M6 study never stalled longer than 75.`,
+      ];
+    } else {
+      const ra = rate(a.victimEj, q, a.N, n), rb = rate(b.victimEj, q, b.N, n);
+      phase = "After quarantine";
+      title = `Quarantine at cycle ${qc}`;
+      body = [
+        `Right: the router quarantined tile 4 and now discards traffic addressed to it (marked ×), which frees the VCs it was holding. Victim deliveries since then: <strong>${pct(rb)}</strong> flits/node/cycle${rb > 0.2 ? ", above the offered load while the backlog drains" : ""}.`,
+        `Left: no defense, so the blockage stays. Victim deliveries since cycle ${qc}: <strong>${pct(ra)}</strong> flits/node/cycle, against ${pct(before)} before the attack. ${a.inBuf[a.N - 1]} flits are still stuck in the left mesh's buffers when the replay ends.`,
+        `What the hardened router gives up: packets addressed to the dead tile are dropped instead of delivered. They could not have been delivered anyway.`,
+      ];
+    }
+  }
+  $("phase").textContent = phase;
+  $("storyTitle").textContent = title;
+  const story = $("story");
+  story.innerHTML = body.map((p) => `<p>${p}</p>`).join("");
+}
+
+// ---------- legend + verdict ----------
+function renderLegend() {
+  const L = $("legend");
+  L.textContent = "";
+  const add = (sw, text) => { const r = h("div", "row"); r.appendChild(h("span", "sw " + sw)); r.appendChild(h("span", null, text)); L.appendChild(r); };
+  if (st.g.id === "deadlock") { add("f0", "REQ, request to the home tile"); add("f1", "SNP, snoop from home to owner"); add("f2", "RSP, response to the requester"); }
+  else if (st.g.id === "blackhole") { add("f0", "Packet for any other tile"); add("f3", "Packet for tile 4 (the black hole)"); }
+  else add("f0", "Packet (single flit)");
+  add("empty", "Free buffer slot: one line of slots per VC, head nearest the router center; dashed box = the tile's injection port; faded = mesh edge, no link");
+  add("dotsw", "Flit on a link this cycle");
+  if (st.g.id === "deadlock") add("empty", "Small slots inside each tile: its receive queues");
+  if (st.g.id === "blackhole") { const r = h("div", "row"); r.innerHTML = '<svg width="12" height="12" viewBox="-6 -6 12 12" aria-hidden="true"><path d="M-4,-4L4,4M4,-4L-4,4" stroke="var(--crit)" stroke-width="2" stroke-linecap="round"/></svg>'; r.appendChild(h("span", null, "Flit discarded by the watchdog")); L.appendChild(r); }
+  const v = $("verdict");
+  v.textContent = "";
+  for (const varnt of st.g.variants) {
+    const s = SCN[varnt.key];
+    const b = document.createElement("b"); b.textContent = varnt.title + "\n"; v.appendChild(b);
+    v.appendChild(document.createTextNode((s.d.log || []).join("\n") + "\n\n"));
+  }
+}
+
+// ---------- flit selection ----------
+function selectFlit(P, u) {
+  st.sel = (u == null) ? null : { panel: P, u };
+  for (const Q of st.panels) {
+    Q.gRoute.textContent = "";
+    for (const k in Q.slots) for (const r of Q.slots[k]) r._tag = null;
+    for (const k in Q.rxSlots) for (const r of Q.rxSlots[k]) r._tag = null;
+  }
+  if (st.sel) drawRoute(P, u);
+  renderFrame(); renderDots();
+}
+function drawRoute(P, u) {
+  const s = P.s, p = s.pk[u];
+  const [sx, sy] = rxy(p.src, s.W), [dx, dy] = rxy(p.dst, s.W);
+  const c = (x, y) => `${x * PITCH + R / 2},${y * PITCH + R / 2}`;
+  const pts = [`${sx * PITCH + R + COFF + CORE / 2},${sy * PITCH + R + COFF + CORE / 2}`, c(sx, sy), c(dx, sy), c(dx, dy), `${dx * PITCH + R + COFF + CORE / 2},${dy * PITCH + R + COFF + CORE / 2}`];
+  el("polyline", { points: pts.join(" "), class: "route" }, P.gRoute);
+}
+function renderFlitCard() {
+  const body = $("flitBody");
+  if (!st.sel) {
+    if (!body.dataset.empty) { body.innerHTML = '<p class="hint">Click a flit on a link or in a buffer to see where it came from, where it is going, and every hop it takes.</p>'; body.dataset.empty = "1"; }
+    return;
+  }
+  delete body.dataset.empty;
+  const P = st.sel.panel, s = P.s, u = st.sel.u, p = s.pk[u];
+  const hops = s.hops.get(u) || [];
+  const where = locate(P, u, st.idx);
+  const lat = (p.inj != null && p.ej != null) ? `${p.ej - p.inj} cycles` : "—";
+  const items = [];
+  if (p.inj != null) items.push({ i: p.inj, text: `injected at tile ${p.src} ${rname(p.src, s.W)}` });
+  for (const hp of hops) items.push({ i: hp.i, text: hp.p === 4 ? `delivered to tile ${hp.r} (VC ${hp.vc})` : `${rname(hp.r, s.W)} → ${PORT_NAME[hp.p]} link, VC ${hp.vc}` });
+  if (p.drop != null) items.push({ i: p.drop, text: `discarded by the watchdog at ${rname(p.dst, s.W)}` });
+  items.sort((a, b) => a.i - b.i);
+  body.innerHTML = "";
+  const h3 = h("h3", null, `${flitKind(s, u)} #${u} · ${rname(p.src, s.W)} → ${rname(p.dst, s.W)}`);
+  body.appendChild(h3);
+  const dl = h("dl");
+  const kv = (k, v) => { dl.appendChild(h("dt", null, k)); dl.appendChild(h("dd", null, v)); };
+  kv("Panel", P.art.querySelector("h3").textContent);
+  kv("Payload", "0x" + p.pay.toString(16).toUpperCase().padStart(4, "0"));
+  kv("Injected", p.inj != null ? "cycle " + s.tb(p.inj) : "before this replay");
+  kv("Delivered", p.ej != null ? "cycle " + s.tb(p.ej) : (p.drop != null ? "discarded, cycle " + s.tb(p.drop) : "not within this replay"));
+  kv("Latency", lat);
+  kv("Right now", where);
+  body.appendChild(dl);
+  const ol = h("ol", "hops");
+  for (const it of items) {
+    const li = h("li", it.i === st.idx ? "now" : null);
+    li.appendChild(h("span", null, String(s.tb(it.i))));
+    li.appendChild(h("span", null, it.text));
+    li.onclick = () => seek(it.i);
+    ol.appendChild(li);
+  }
+  body.appendChild(ol);
+  const row = h("p", "hint");
+  const clr = h("button", "linkish", "Clear selection");
+  clr.onclick = () => selectFlit(null, null);
+  row.appendChild(clr);
+  if (p.inj != null && p.inj !== st.idx) {
+    row.appendChild(document.createTextNode(" · "));
+    const go = h("button", "linkish", "Replay from its injection");
+    go.onclick = () => { seek(p.inj); };
+    row.appendChild(go);
+  }
+  body.appendChild(row);
+}
+function locate(P, u, i) {
+  const s = P.s, buf = s.buf[i];
+  for (const k in buf) {
+    const j = buf[k].indexOf(u);
+    if (j >= 0) { const v = k % s.nv, rp = Math.floor(k / s.nv), r = Math.floor(rp / 5), p = rp % 5; return `buffered at ${rname(r, s.W)}, ${PORT_NAME[p]} input, VC ${v}, ${j === 0 ? "at the head" : (j + 1) + " from the head"}`; }
+  }
+  const rx = s.rx[i];
+  for (const k in rx) if (rx[k].indexOf(u) >= 0) return `in tile ${Math.floor(k / s.nv)}'s receive queue`;
+  const fr = s.d.frames[i];
+  for (const [r, p, vc, uu] of fr.m || []) if (uu === u) return `on the ${PORT_NAME[p]} link out of ${rname(r, s.W)}, VC ${vc}`;
+  for (const [r, uu] of fr.e || []) if (uu === u) return `leaving ${rname(r, s.W)} for its tile`;
+  for (const [r, uu] of fr.i || []) if (uu === u) return `being injected at tile ${r}`;
+  for (const [r, uu] of fr.x || []) if (uu === u) return `being discarded at ${rname(r, s.W)}`;
+  const p = s.pk[u];
+  if (p.inj != null && i < p.inj) return "not injected yet";
+  if (p.ej != null && i > p.ej) return "delivered";
+  if (p.drop != null && i > p.drop) return "discarded";
+  return "between stages (pipeline register)";
+}
+
+// ---------- pointer: tooltips + selection ----------
+const tip = $("tip");
+function wirePointer(P) {
+  const find = (target) => {
+    if (target.dataset && target.dataset.u != null) return +target.dataset.u;
+    if (target.dataset && target.dataset.k != null) { const c = P.s.buf[st.idx][target.dataset.k] || []; const u = c[+target.dataset.i]; return u == null ? null : u; }
+    if (target.dataset && target.dataset.rx != null) { const c = P.s.rx[st.idx][target.dataset.rx] || []; const u = c[+target.dataset.i]; return u == null ? null : u; }
+    return null;
+  };
+  P.svg.addEventListener("pointermove", (ev) => {
+    const tgt = ev.target;
+    const u = find(tgt);
+    let html = "";
+    const s = P.s;
+    if (u != null) {
+      const p = s.pk[u];
+      html = `<div class="t">${flitKind(s, u)} #${u}</div>${rname(p.src, s.W)} → ${rname(p.dst, s.W)} · payload 0x${p.pay.toString(16).toUpperCase().padStart(4, "0")}<br>${locate(P, u, st.idx)}<br><em>click to follow</em>`;
+    } else if (tgt.dataset && tgt.dataset.k != null) {
+      const k = +tgt.dataset.k, v = k % s.nv, rp = Math.floor(k / s.nv), r = Math.floor(rp / 5), pp = rp % 5;
+      html = `<div class="t">${rname(r, s.W)} ${PORT_NAME[pp]} input · VC ${v}</div>slot ${+tgt.dataset.i + 1} of ${s.cfg.depth} · free`;
+    } else if (tgt.dataset && tgt.dataset.tile != null) {
+      const r = +tgt.dataset.tile;
+      html = `<div class="t">tile ${r} ${rname(r, s.W)}</div>the endpoint on this router's local port`;
+    }
+    if (!html) { tip.hidden = true; return; }
+    tip.innerHTML = html;
+    tip.hidden = false;
+    const w = tip.offsetWidth, hh = tip.offsetHeight;
+    let x = ev.clientX + 14, y = ev.clientY + 14;
+    if (x + w > window.innerWidth - 8) x = ev.clientX - w - 14;
+    if (y + hh > window.innerHeight - 8) y = ev.clientY - hh - 14;
+    tip.style.left = x + "px"; tip.style.top = y + "px";
+  });
+  P.svg.addEventListener("pointerleave", () => { tip.hidden = true; });
+  P.svg.addEventListener("click", (ev) => {
+    const u = find(ev.target);
+    if (u != null) { selectFlit(P, u); setPlaying(false); }
+  });
+}
+
+// ---------- group switching, transport ----------
+function showGroup(g) {
+  st.g = g; st.sel = null;
+  for (const b of $("tabs").children) b.setAttribute("aria-selected", b.dataset.g === g.id ? "true" : "false");
+  const host = $("panels");
+  host.textContent = "";
+  st.panels = g.variants.map((v) => buildPanel(SCN[v.key], v.title));
+  host.style.setProperty("--cols", String(st.panels.length));
+  $("layout").className = "layout " + (st.panels.length === 1 ? "single" : "pair");
+  for (const P of st.panels) host.appendChild(P.art);
+  // shared y-scale across a pair so the two sparklines compare honestly
+  let ymax = 0;
+  for (const P of st.panels) { const s = P.s, n = s.W * s.H; let acc = 0; for (let i = 0; i < s.N; i++) { acc += s.ej[i]; if (i >= 10) acc -= s.ej[i - 10]; ymax = Math.max(ymax, acc / Math.min(i + 1, 10) / n); } }
+  ymax = Math.ceil(ymax * 10) / 10;
+  const offered = g.id === "uniform" ? 0.4 : g.id === "blackhole" ? 0.2 : 0;
+  for (const P of st.panels) drawSpark(P, ymax, offered);
+  const s0 = st.panels[0].s;
+  const sc = $("scrub"); sc.max = s0.N - 1;
+  $("cycRange").textContent = `of ${Math.max(0, s0.tb(0))}–${s0.tb(s0.N - 1)}`;
+  // event marks
+  const marks = $("marks"); marks.textContent = "";
+  const mark = (i, text, cls) => { const m = h("span", "mark" + (cls ? " " + cls : ""), text); m.style.left = (i / (s0.N - 1) * 100) + "%"; marks.appendChild(m); };
+  if (g.id === "deadlock") mark(SCN.deadlock.lastActive, `left freezes · ${SCN.deadlock.tb(SCN.deadlock.lastActive)}`);
+  if (g.id === "blackhole") { mark(BH_START - s0.tb(0), `attack · ${BH_START}`); mark(SCN.bh_secure.qFirst, `quarantine · ${SCN.bh_secure.tb(SCN.bh_secure.qFirst)}`, "good"); }
+  st.speed = g.speed; $("speed").value = String(g.speed);
+  st.idx = Math.min(g.start, s0.N - 1); st.t = 0;
+  renderLegend();
+  renderFrame(); renderDots();
+}
+function seek(i) {
+  const N = st.panels[0].s.N;
+  st.idx = Math.max(0, Math.min(N - 1, i)); st.t = 0;
+  renderFrame(); renderDots();
+}
+function setPlaying(on) {
+  const N = st.panels[0].s.N;
+  if (on && st.idx >= N - 1) { st.idx = 0; st.t = 0; renderFrame(); }
+  st.playing = on;
+  $("playText").textContent = on ? "Pause" : "Play";
+  $("bPlay").setAttribute("aria-label", on ? "Pause" : "Play");
+  $("playIcon").innerHTML = on ? '<path d="M3 2h4v12H3zM9 2h4v12H9z"/>' : '<path d="M4 2l10 6-10 6z"/>';
+  lastTs = null;
+}
+let lastTs = null;
+function loop(ts) {
+  if (st.playing) {
+    if (lastTs != null) {
+      st.t += (ts - lastTs) / 1000 * st.speed;
+      let moved = false;
+      while (st.t >= 1) {
+        st.t -= 1;
+        if (st.idx < st.panels[0].s.N - 1) { st.idx++; moved = true; }
+        else { st.t = 0; setPlaying(false); break; }
+      }
+      if (moved) renderFrame();
+      renderDots();
+    }
+    lastTs = ts;
+  }
+  requestAnimationFrame(loop);
+}
+
+// tabs
+for (const g of GROUPS) {
+  const b = document.createElement("button");
+  b.className = "tab"; b.setAttribute("role", "tab"); b.dataset.g = g.id;
+  b.textContent = g.label;
+  const sub = h("span", "sub", g.sub); b.appendChild(sub);
+  b.onclick = () => {
+    showGroup(g);
+    try { localStorage.setItem("noc-replay-tab", g.id); } catch (e) {}
+    try { history.replaceState(null, "", "#" + g.id); } catch (e) {}
+  };
+  $("tabs").appendChild(b);
+}
+$("bPlay").onclick = () => setPlaying(!st.playing);
+$("bBack").onclick = () => { setPlaying(false); seek(st.idx - 1); };
+$("bFwd").onclick = () => { setPlaying(false); seek(st.idx + 1); };
+$("bStart").onclick = () => { setPlaying(false); seek(0); };
+$("speed").onchange = (e) => { st.speed = +e.target.value; };
+$("scrub").oninput = (e) => { seek(+e.target.value); };
+document.addEventListener("keydown", (e) => {
+  if (e.target.closest && e.target.closest("input, select, textarea")) return;
+  if (e.key === " ") { e.preventDefault(); setPlaying(!st.playing); }
+  else if (e.key === "ArrowRight") { setPlaying(false); seek(st.idx + 1); }
+  else if (e.key === "ArrowLeft") { setPlaying(false); seek(st.idx - 1); }
+  else if (e.key === "Escape") selectFlit(null, null);
+});
+
+let first = GROUPS[0];
+try { const saved = localStorage.getItem("noc-replay-tab"); const g = GROUPS.find((x) => x.id === saved); if (g) first = g; } catch (e) {}
+// deep link: #uniform, #deadlock, #blackhole, optionally with a testbench cycle: #deadlock.250
+const hm = /^#([a-z]+)(?:\.(\d+))?$/.exec(location.hash || "");
+const linked = hm && GROUPS.find((x) => x.id === hm[1]);
+if (linked) first = linked;
+if (!Object.keys(DATA).length) {
+  $("panels").textContent = "Replay data missing: run visualizer/tools/make_scenarios.sh to generate data/scenarios.js.";
+} else {
+  showGroup(first);
+  if (linked && hm[2] != null) seek(+hm[2] - st.panels[0].s.tb(0));
+  else if (!reduceMotion) setPlaying(true);
+  requestAnimationFrame(loop);
+}
+})();
+</script>

@@ -1,0 +1,3 @@
+sim/*.vvp
+sim/*.vcd
+sim/sweep_logs/

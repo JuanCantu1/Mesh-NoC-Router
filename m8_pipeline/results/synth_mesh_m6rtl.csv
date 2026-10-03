@@ -1,0 +1,3 @@
+config,num_vns,vcs_per_vn,buffer_depth,sa_iters,secure,pipe,mesh_area_um2,area_per_router_um2,flops,crit_path_ns,critical_path
+m6_m4router,1,1,4,1,0,0,472547,52505,11194,4.95,"g_col[1].g_row[1].u_router.g_in_port[4].g_in_vc[0].u_fifo.head -> g_col[1].g_row[0].u_router.g_in_port[1].g_in_vc[0].u_fifo.push_data"
+m6_vcs_2pass,1,4,2,2,0,0,890677,98964,19643,10.10,"g_col[0].g_row[2].u_router.g_in_port[4].g_in_vc[3].u_fifo.head -> $auto$rtlil.cc:3480:MuxGate$12024828"
