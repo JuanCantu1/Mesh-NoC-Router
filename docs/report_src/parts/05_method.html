@@ -1,0 +1,98 @@
+<h1 id="method">Approach and methodology</h1>
+
+<h2 id="a-incremental">Building in milestones</h2>
+<p>The router was not designed once and then verified. It was grown in eight steps, each answering one question raised by the last, with a complete verification pass before the next began. Each step lives in its own folder with its own design, testbenches, tools, results, <code>run.sh</code> and README, and copies the previous step's files rather than rewriting them. That makes every milestone a demonstrable artifact on its own, and makes every comparison between two designs a comparison between two folders.</p>
+
+<figure>
+<svg viewBox="0 0 560 270" role="img" aria-label="The eight milestones, each with the question it answers">
+  <defs><marker id="a1" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L8,4 L0,8z" fill="#8892a0"/></marker></defs>
+  <g class="ln" marker-end="url(#a1)"><path d="M137 55H146"/><path d="M277 55H286"/><path d="M417 55H426"/><path d="M493 98V120"/><path d="M137 175H146"/><path d="M277 175H286"/><path d="M417 175H426"/></g>
+  <g>
+    <rect class="bx-a" x="8" y="10" width="129" height="88" rx="6"/><rect class="bx-a" x="146" y="10" width="129" height="88" rx="6"/><rect class="bx-a" x="286" y="10" width="129" height="88" rx="6"/><rect class="bx-a" x="426" y="10" width="127" height="88" rx="6"/>
+    <rect class="bx-o" x="8" y="130" width="129" height="88" rx="6"/><rect class="bx-o" x="146" y="130" width="129" height="88" rx="6"/><rect class="bx-g" x="286" y="130" width="129" height="88" rx="6"/><rect class="bx-g" x="426" y="130" width="127" height="88" rx="6"/>
+  </g>
+  <g class="t-b"><text x="16" y="28">M1  Router</text><text x="154" y="28">M2  Mesh</text><text x="294" y="28">M3  Credits</text><text x="434" y="28">M4  Measure</text>
+  <text x="16" y="148">M8  Pipeline</text><text x="154" y="148">M7  Synthesis</text><text x="294" y="148">M6  Security</text><text x="434" y="148">M5  VCs, VNs</text></g>
+  <g class="t-s">
+    <text x="16" y="46">Does one router</text><text x="16" y="58">route and arbitrate</text><text x="16" y="70">correctly?</text>
+    <text x="154" y="46">Do routers compose</text><text x="154" y="58">into a working grid?</text>
+    <text x="294" y="46">Can a hop be a real,</text><text x="294" y="58">bounded clock cycle?</text>
+    <text x="434" y="46">How much load does</text><text x="434" y="58">it carry, and why</text><text x="434" y="70">does it stop there?</text>
+    <text x="16" y="166">Which router to</text><text x="16" y="178">build at a given</text><text x="16" y="190">clock period?</text>
+    <text x="154" y="166">What does each feature</text><text x="154" y="178">cost in area and ns?</text><text x="154" y="190">Prove it, formally.</text>
+    <text x="294" y="166">What can one bad tile</text><text x="294" y="178">do to the others?</text>
+    <text x="434" y="166">Remove head-of-line</text><text x="434" y="178">blocking and protocol</text><text x="434" y="190">deadlock.</text>
+  </g>
+  <text x="280" y="248" text-anchor="middle" class="t-s t-mute">Read left to right on the top row, then right to left on the bottom row. Blue: foundation. Orange: scale and cost. Green: new capability.</text>
+</svg>
+<figcaption><b>Figure 4.1.</b> The milestone sequence, as a chain of questions. Each answer created the next question.</figcaption>
+</figure>
+
+<h2 id="a-principles">Working principles</h2>
+<p>Five rules were applied throughout. They explain why the project's results can be trusted, and several of the corrections in Chapter 9 came from applying them.</p>
+<table>
+<thead><tr><th style="width:24%">Principle</th><th>In practice</th></tr></thead>
+<tbody>
+<tr><td><b>Measure, do not assert</b></td><td>Every performance, area and timing statement comes from a sweep or a synthesis run whose data is in a CSV. Where a model predicts a result (channel load, hop-count latency), the measurement is checked against it, and the cases where they disagree are investigated, not hidden.</td></tr>
+<tr><td><b>A refactor must prove it changed nothing</b></td><td>Configured as the old design, the new design must reproduce the old results digit for digit. M5 reproduces all 80 of M4's sweep points. M6 reproduces 288 earlier runs. M7 and M8 do the same after timing changes. This pins behavior, not just correctness.</td></tr>
+<tr><td><b>Verify the verification</b></td><td>Mutation testing plants known bugs and requires the checkers to catch every one. Formal proofs carry negative controls: a planted bug must make each proof fail.</td></tr>
+<tr><td><b>Show the attack succeed first</b></td><td>A defense is only evidence if the attack works without it. Every security result is paired with the same attack against the unprotected router, and a passing run requires both directions.</td></tr>
+<tr><td><b>Correct the record openly</b></td><td>When a later milestone showed an earlier number was wrong, the earlier document was edited with a dated correction. Nothing was quietly replaced.</td></tr>
+</tbody></table>
+
+<h2 id="a-tools">Toolchain</h2>
+<p>Everything runs on open-source tools, on one Windows laptop, with no commercial licenses.</p>
+<table>
+<thead><tr><th style="width:23%">Tool</th><th style="width:20%">Version</th><th>Used for</th></tr></thead>
+<tbody>
+<tr><td>Icarus Verilog</td><td>12.0 (devel)</td><td>All simulation (<code>iverilog</code>, <code>vvp</code>), waveform dumping (VCD)</td></tr>
+<tr><td>Yosys with the slang frontend</td><td>0.69</td><td>Synthesis of SystemVerilog onto standard cells; ABC static timing</td></tr>
+<tr><td>SymbiYosys</td><td>OSS CAD Suite</td><td>Formal proofs: bounded model checking and k-induction</td></tr>
+<tr><td>Verilator</td><td>5.032</td><td>Lint with <code>-Wall</code>, two views (synthesizable, with checkers); zero warnings required</td></tr>
+<tr><td>SkyWater sky130_fd_sc_hd</td><td>typical corner, 25 &deg;C, 1.8 V</td><td>The standard-cell library for synthesis</td></tr>
+<tr><td>Python 3 and matplotlib</td><td></td><td>Analytic models, result analysis, plots, the replay data pipeline</td></tr>
+<tr><td>GTKWave</td><td></td><td>Optional waveform viewing</td></tr>
+</tbody></table>
+<p>The simulator limited the language subset. Several SystemVerilog constructs crash or silently misbehave in this Icarus build, and the RTL is written around them (Appendix E lists them). In return, the same RTL passes Verilator lint and synthesizes through Yosys, so nothing in the design depends on simulator quirks.</p>
+
+<h2 id="a-conventions">Conventions</h2>
+<ul>
+<li><b>Self-checking testbenches.</b> Every testbench prints PASS or FAIL and sets a result line the scripts can match. No waveform viewer is needed to know whether a milestone works, though a VCD is written when a testbench runs directly.</li>
+<li><b>Scripts that fail loudly.</b> <code>vvp</code> exits with status 0 even when a testbench prints FAIL, so every <code>run.sh</code> requires each step's own pass line and exits non-zero otherwise. This was added to M1 to M4 late and verified by planting a bug.</li>
+<li><b>Verification code stays out of synthesis.</b> Embedded checkers, counters and configuration checks are wrapped in <code>`ifndef SYNTHESIS</code>, so synthesis sees exactly the hardware and simulation keeps every check.</li>
+<li><b>One README and one folder per milestone</b>, with ASCII or SVG diagrams, so each milestone can be read and run without the others.</li>
+<li><b>Generated files are not source.</b> Compiled simulations, waveforms and proof run directories are regenerated by the scripts and are excluded by <code>.gitignore</code>.</li>
+</ul>
+
+<h2 id="a-repo">Repository layout</h2>
+<pre>NoC Router Project/
+  m1_single_router/      single combinational router, valid/ready handshake
+  m2_mesh/               3x3 mesh of M1 routers
+  m3_flow_control/       credit-based flow control, input FIFOs
+  m4_verification/       randomized scoreboards, sweeps, analytic model, mutation testing
+  m5_virtual_networks/   VC router, two-pass allocator, VNs, protocol deadlock study
+  m6_security/           compromised-tile attacks and local-port defenses
+  m7_synthesis/          sky130 synthesis, timing fixes, formal proofs, lint
+  m8_pipeline/           two-stage router, whole-mesh timing, clock study, 4x4 mesh   (final design)
+  visualizer/            NoC Mesh Replay: page, waveform-to-replay tools, checker
+  docs/                  this report and its source
+  regress.sh             whole-project regression
+  GUIDE.md               hands-on guide to reproducing every result
+
+each milestone folder:   rtl/  tb/  tools/  results/  run.sh  README.md</pre>
+
+<table class="tight">
+<caption>Size of each milestone's design, testbenches and tools, in lines of source</caption>
+<thead><tr><th>Milestone</th><th class="num">RTL</th><th class="num">Testbenches</th><th class="num">Tools and scripts</th></tr></thead>
+<tbody>
+<tr><td>M1 single router</td><td class="num">277</td><td class="num">476</td><td class="num">0</td></tr>
+<tr><td>M2 mesh</td><td class="num">453</td><td class="num">257</td><td class="num">0</td></tr>
+<tr><td>M3 flow control</td><td class="num">389</td><td class="num">535</td><td class="num">0</td></tr>
+<tr><td>M4 verification</td><td class="num">645</td><td class="num">1,263</td><td class="num">548</td></tr>
+<tr><td>M5 virtual networks</td><td class="num">1,032</td><td class="num">1,715</td><td class="num">578</td></tr>
+<tr><td>M6 security</td><td class="num">1,187</td><td class="num">2,128</td><td class="num">472</td></tr>
+<tr><td>M7 synthesis</td><td class="num">1,262</td><td class="num">2,128</td><td class="num">631</td></tr>
+<tr class="hl"><td>M8 pipeline (final design)</td><td class="num">1,339</td><td class="num">2,161</td><td class="num">972</td></tr>
+<tr class="sub"><td>Visualizer</td><td class="num" colspan="3">tools 560 lines (Python, shell); page 1,013 lines (HTML, CSS, JavaScript)</td></tr>
+</tbody></table>
+<p class="small">Each milestone's counts include the files copied forward from the one before, so the rows overlap and should not be summed. The final design is 1,339 lines of RTL against 2,161 lines of testbench, 972 lines of tools and 332 lines of formal harnesses and models: more than two lines of checking for every line of design.</p>

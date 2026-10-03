@@ -1,0 +1,136 @@
+<h1 id="app-c" class="appx">Test and tool catalogues</h1>
+
+<h2 id="c-directed">C.1&nbsp;&nbsp;Directed tests of the final router</h2>
+<p><code>vc_router_tb.sv</code> carries 11 numbered tests with 28 individual checks. T1 to T7 come from M5 and T8 to T11 from M6. They run against both pipeline modes.</p>
+<table class="tight">
+<thead><tr><th style="width:7%">Test</th><th>Checks</th></tr></thead>
+<tbody>
+<tr><td>T1</td><td>Routing to all five ports; each class leaves on its own network's VC; every credit returns on the right VC wire</td></tr>
+<tr><td>T2</td><td>Head-of-line blocking: a 1-VC router strands a flit behind a blocked one, a 2-VC router sends it around (one stimulus, two configurations side by side)</td></tr>
+<tr><td>T3</td><td>Network isolation: with East's REQ VC jammed, an RSP to East from the same input still goes straight through</td></tr>
+<tr><td>T4</td><td>Output-VC choice: round-robin within the network; a stalled VC is skipped; a VC of another network is never used</td></tr>
+<tr><td>T5</td><td>Two-pass allocation: an input that loses pass 1 sends on another VC in the same cycle (one pass: two cycles later)</td></tr>
+<tr><td>T6</td><td>Fairness: four inputs streaming to one output receive even shares and none is starved. Revised in M8 from an absolute grant count to the fairness property (shares within one, none zero).</td></tr>
+<tr><td>T7</td><td>A wrong-network flit arriving over a router-to-router <i>link</i> still fires the RTL assertion (links are trusted, so it is a bug)</td></tr>
+<tr><td>T8</td><td>A local flit claiming source (2,2) leaves stamped with the router's own coordinates; a transit flit keeps its source</td></tr>
+<tr><td>T9</td><td>A local REQ in the RSP VC is refused (one alarm, no assertion, credit kept); the same REQ in the REQ VC passes</td></tr>
+<tr><td>T10</td><td>Watchdog with limit 16: a 12-cycle stall is tolerated; past 16 cycles the network is quarantined and exactly the two waiting flits are discarded; the other network is unaffected; recovery when the tile resumes</td></tr>
+<tr><td>T11</td><td>The same tricks on an unprotected router (<code>SECURE=0</code>) pass silently, which shows the vulnerability directly</td></tr>
+</tbody></table>
+<p>Earlier milestones: M1, 13 checks over nine packets; M2, 11 checks over seven multi-hop scenarios; M3, a FIFO unit test and 23 router checks; M4, 12 mesh checks, four randomized scoreboards of about 8,000 packets each, and 80 sweep points.</p>
+
+<h2 id="c-tools">C.2&nbsp;&nbsp;Scripts and tools</h2>
+<table class="tight">
+<thead><tr><th style="width:25%">Script</th><th style="width:10%">From</th><th>Purpose</th><th class="num" style="width:12%">Run time</th></tr></thead>
+<tbody>
+<tr><td><code>sweep.sh</code></td><td>M4</td><td>Latency and throughput sweep over patterns and loads, run in parallel into one CSV. Later versions add router configurations, <code>SECURE</code>, <code>PIPE</code> and <code>MESH</code>.</td><td class="num">45 s to 7 min</td></tr>
+<tr><td><code>theory_check.py</code></td><td>M4</td><td>The analytic channel-load model; checks the sweep against it</td><td class="num">seconds</td></tr>
+<tr><td><code>plot_sweep.py</code>, <code>plot_vc_study.py</code>, <code>plot_clock.py</code></td><td>M4, M5, M8</td><td>Charts for the milestone READMEs</td><td class="num">seconds</td></tr>
+<tr><td><code>mutation_test.sh</code></td><td>M4</td><td>Plants known bugs one at a time and requires every one to be caught; 3 mutants in M4, 7 in M5, 11 from M6</td><td class="num">40 s to 4 min</td></tr>
+<tr><td><code>equivalence_check.sh</code></td><td>M5</td><td>A new milestone configured as an old one must reproduce the old results digit for digit</td><td class="num">1.5 to 14 min</td></tr>
+<tr><td><code>deadlock_demo.sh</code></td><td>M5</td><td>Deadlock rate against outstanding transactions for three configurations</td><td class="num">5 min</td></tr>
+<tr><td><code>attack_matrix.sh</code></td><td>M6</td><td>Every attack against both routers; requires compromise without the defense and containment with it</td><td class="num">3 to 6 min</td></tr>
+<tr><td><code>watchdog_study.sh</code></td><td>M6</td><td>Honest stall lengths and black-hole damage against <code>WD_LIMIT</code></td><td class="num">5 min</td></tr>
+<tr><td><code>lint.sh</code></td><td>M7</td><td>Verilator <code>-Wall</code> on two views and several configurations; zero warnings required</td><td class="num">seconds</td></tr>
+<tr><td><code>synth.sh</code></td><td>M7, M8</td><td>sky130 synthesis. M8's version flattens the whole mesh and reports where the critical path starts and ends.</td><td class="num">3 to 4 min</td></tr>
+<tr><td><code>formal.sh</code></td><td>M7</td><td>SymbiYosys proofs and negative controls; M8 adds the two-stage proofs</td><td class="num">4 to 6 min</td></tr>
+<tr><td><code>mesh_scaling.sh</code>, <code>mesh_scaling.py</code></td><td>M8</td><td>The 4&times;4 study and its analytic comparison</td><td class="num">6 min</td></tr>
+<tr><td><code>vcd2json.py</code>, <code>check_replay.py</code>, <code>bundle.py</code>, <code>make_scenarios.sh</code></td><td>Visualizer</td><td>Waveform to replay conversion, replay verification, bundling into one HTML file, and the end-to-end script</td><td class="num">1 min</td></tr>
+<tr><td><code>regress.sh</code></td><td>root</td><td>The whole-project regression; <code>--full</code> adds the long studies</td><td class="num">10 or 49 min</td></tr>
+<tr><td><code>make_figures.py</code>, <code>make_tables.py</code>, <code>build.py</code></td><td>docs</td><td>This report's charts, appendix tables and PDF</td><td class="num">under 1 min</td></tr>
+</tbody></table>
+
+<h2 id="c-formal">C.3&nbsp;&nbsp;Formal files</h2>
+<table class="tight">
+<thead><tr><th style="width:28%">File</th><th class="num" style="width:9%">Lines</th><th>Role</th></tr></thead>
+<tbody>
+<tr><td><code>formal/rr_arbiter_ref.sv</code></td><td class="num">102</td><td>The original loop-based arbiter, kept as the reference model</td></tr>
+<tr><td><code>formal/arb_equiv.sv</code></td><td class="num">50</td><td>Miter that runs the new and reference arbiters side by side and asserts identical grants</td></tr>
+<tr><td><code>formal/arb_props.sv</code></td><td class="num">58</td><td>Concurrent assertions P1 to P5, proved by k-induction</td></tr>
+<tr><td><code>formal/router_credit.sv</code></td><td class="num">122</td><td>Harness around one router: neighbors as assumptions (trusted on link ports, free on the local port), C1 to C4 as assertions, <code>PIPE</code> as a parameter</td></tr>
+</tbody></table>
+
+<h1 id="app-d" class="appx">Repository inventory</h1>
+<table class="tight">
+<thead><tr><th style="width:22%">Directory</th><th>Key contents</th></tr></thead>
+<tbody>
+<tr><td><code>m1_single_router/</code></td><td><code>rtl/</code> noc_pkg, rr_arbiter, router; <code>tb/</code> router_tb, trace_gen_tb; run.sh, gen_trace.sh</td></tr>
+<tr><td><code>m2_mesh/</code></td><td>M1's files plus <code>rtl/mesh.sv</code> and <code>tb/mesh_tb.sv</code></td></tr>
+<tr><td><code>m3_flow_control/</code></td><td><code>rtl/flit_fifo.sv</code>, credit-based <code>router.sv</code>; <code>tb/flit_fifo_tb.sv</code>, <code>tb/router_tb.sv</code></td></tr>
+<tr><td><code>m4_verification/</code></td><td><code>rtl/mesh_credit.sv</code>; <code>tb/</code> mesh_credit_tb, random_traffic_tb, latency_sweep_tb; <code>tools/</code> sweep.sh, theory_check.py, plot_sweep.py, mutation_test.sh; <code>results/</code> latency_sweep.csv, latency_sweep_depth8.csv, plots</td></tr>
+<tr><td><code>m5_virtual_networks/</code></td><td><code>rtl/</code> vc_router, vc_mesh, flit_fifo, rr_arbiter, noc_pkg; <code>tb/</code> vc_router_tb, router_harness, latency_sweep_tb, protocol_tb; <code>tools/</code> five scripts; <code>results/</code> vc_sweep.csv, vc_patterns.csv, deadlock_demo.csv, equivalence_1x1x4.csv, plots</td></tr>
+<tr><td><code>m6_security/</code></td><td>M5's files extended with <code>SECURE</code> and <code>WD_LIMIT</code>; <code>tools/</code> equivalence_check, attack_matrix, watchdog_study, mutation_test, sweep; <code>results/</code> attack_*.csv, equiv_*.csv, watchdog_study.csv</td></tr>
+<tr><td><code>m7_synthesis/</code></td><td>M6's files with route-at-write, the masked arbiter and <code>`ifndef SYNTHESIS</code> guards; <code>formal/</code>; <code>syn/</code> (liberty file; outputs regenerated); <code>tools/</code> lint, synth, formal and the earlier scripts</td></tr>
+<tr><td><code>m8_pipeline/</code></td><td>The final design: five RTL files, four testbenches, <code>formal/</code>, ten scripts, <code>results/</code> (synth*.csv, sweep_pipe.csv, sweep_4x4_pipe.csv, attack_*, equiv_*, clock study plots)</td></tr>
+<tr><td><code>visualizer/</code></td><td><code>index.html</code> (page source), <code>noc_replay.html</code> (self-contained build), <code>data/</code> (per-scenario JSON and the bundle), <code>tools/</code> (conversion, check, bundle, scenarios), <code>sim/</code> (regenerated)</td></tr>
+<tr><td><code>docs/</code></td><td>This report and <code>report_src/</code> (parts, styles, figure and table generators, build script)</td></tr>
+<tr><td>root</td><td><code>README.md</code>, <code>GUIDE.md</code>, <code>regress.sh</code>, <code>regress_logs/</code> (regenerated)</td></tr>
+</tbody></table>
+<p>Each milestone also carries a <code>.gitignore</code> excluding its regenerated <code>sim/</code>, synthesis output and proof run directories.</p>
+
+<h1 id="app-e" class="appx">Toolchain notes and simulator quirks</h1>
+<h2 id="e-icarus">E.1&nbsp;&nbsp;Icarus Verilog 12.0 (devel) constructs avoided</h2>
+<p>These are the places this build crashes, warns or silently misbehaves. The RTL and testbenches are written around each; the same sources lint cleanly in Verilator and synthesize in Yosys.</p>
+<table class="tight">
+<thead><tr><th style="width:44%">Construct</th><th>Symptom and workaround</th></tr></thead>
+<tbody>
+<tr><td>A <code>for</code> loop reading a packed-struct field inside <code>always_comb</code></td><td>Compiles with a cosmetic warning, then corrupts the simulation (<code>vvp</code> crashes a few edges in). Use generate loops.</td></tr>
+<tr><td>Comparing two loop-indexed array reads in a nested procedural loop</td><td>Same failure mode. Use generate loops.</td></tr>
+<tr><td>An output port declared as an unpacked array of a packed struct, written in a generate block</td><td>Reads as <code>x</code> from outside the module. Declare it as a packed array.</td></tr>
+<tr><td>Concurrent assertions (<code>property</code>, <code>assert property</code>)</td><td>Not parsed. Use immediate assertions and procedural bounded-wait counters; prove the temporal versions formally in M7.</td></tr>
+<tr><td>Package functions called inside generate blocks after <code>import noc_pkg::*</code></td><td>Not found. Call as <code>noc_pkg::vn_of(...)</code>.</td></tr>
+<tr><td><code>int</code> arrays connected through continuous assigns</td><td>Crash <code>vvp</code> at run time. Use <code>logic</code> arrays in testbenches.</td></tr>
+<tr><td><code>$display</code> inside <code>always_ff</code></td><td>Floods <code>-Wall</code> with "cannot be synthesized". Simulation-only checkers are plain <code>always</code> blocks.</td></tr>
+<tr><td>Writing a constant-indexed unpacked-array element inside <code>always_comb</code></td><td>Warns once per instance. The routing function is a continuous-assign ternary chain.</td></tr>
+<tr><td>Package import in the module header</td><td>Crashes the compiler. Import at file scope, and waive Verilator's <code>IMPORTSTAR</code>.</td></tr>
+<tr><td>A signal named <code>before</code></td><td>It is a SystemVerilog keyword. Renamed.</td></tr>
+<tr><td>Chained unpacked arrays in an encoder</td><td>Verilator reports a false combinational loop (<code>UNOPTFLAT</code>). Use flat one-hot-to-binary encoders.</td></tr>
+</tbody></table>
+<h2 id="e-env">E.2&nbsp;&nbsp;Environment notes</h2>
+<ul>
+<li><code>vvp</code> exits 0 even when a testbench prints FAIL; scripts must match the pass line.</li>
+<li>A full-mesh VCD is about 19 MB per run, so batch sweeps pass <code>+NODUMP</code>; run a single point by hand to get its waveform.</li>
+<li>SymbiYosys file lists cannot contain spaces: use relative paths from each proof's directory. It exits non-zero on an expected FAIL, so scripts read the verdict from the last <code>DONE</code> line.</li>
+<li>Verilator's Perl wrapper fails under Git Bash; call the executable directly.</li>
+<li>Running eight Yosys jobs in parallel can crash on memory; use three or four with a retry.</li>
+<li>Python on Windows writes carriage returns in text mode; open files with <code>newline=''</code> when scripts edit sources that shell tools read.</li>
+<li>The sky130 liberty file comes from OpenROAD-flow-scripts. Cells prefixed <code>lpflow_</code> are excluded from mapping.</li>
+</ul>
+
+<h1 id="app-f" class="appx">Glossary</h1>
+<table class="tight dense">
+<thead><tr><th style="width:24%">Term</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td>Accepted throughput</td><td>Packets delivered per tile per cycle in the measurement window</td></tr>
+<tr><td>Arbiter (round-robin)</td><td>Picks one requester per cycle, giving priority to the one after the last winner</td></tr>
+<tr><td>Black hole</td><td>A tile that stops consuming deliveries, so credits to it never return</td></tr>
+<tr><td>Bounded model checking</td><td>Exhaustive formal search up to a stated number of cycles</td></tr>
+<tr><td>Credit</td><td>The sender's count of free slots in the receiver's buffer for one VC</td></tr>
+<tr><td>Critical path</td><td>The longest register-to-register path; sets the minimum clock period</td></tr>
+<tr><td>Cut-through</td><td>A flit can be routed and forwarded in the cycle it arrives</td></tr>
+<tr><td>Dimension-order (XY) routing</td><td>Travel along X first, then along Y; deadlock-free on a mesh</td></tr>
+<tr><td>Equivalence run</td><td>A comparison that requires a new design, configured as an old one, to give identical results</td></tr>
+<tr><td>Flit</td><td>The unit a link carries in one cycle; here, a whole packet</td></tr>
+<tr><td>Head-of-line (HOL) blocking</td><td>A stalled flit at a queue's head blocks the flits behind it</td></tr>
+<tr><td>Home, owner, requester</td><td>The three roles in a transaction: the tile responsible for a line, the tile holding it, and the tile asking</td></tr>
+<tr><td>HAS, MAS</td><td>Hardware architecture specification, micro-architecture specification</td></tr>
+<tr><td>iSLIP</td><td>An allocation scheme whose rule that only first-pass wins move the pointers keeps pass 2 fair</td></tr>
+<tr><td>k-induction</td><td>A formal technique that proves a property for all time from a base case and an inductive step</td></tr>
+<tr><td>Knee (saturation)</td><td>The highest offered load whose average latency stays within three times the zero-load latency</td></tr>
+<tr><td>Mutation testing</td><td>Planting a known bug and requiring the tests to fail</td></tr>
+<tr><td>Negative control</td><td>A formal check on a planted bug that must fail, showing the proof can see that bug</td></tr>
+<tr><td>Offered load</td><td>The rate tiles try to inject packets</td></tr>
+<tr><td>Open-loop measurement</td><td>Traffic generated independent of network state, queued without limit at the source</td></tr>
+<tr><td>Protocol deadlock</td><td>A cycle of waits between message classes sharing buffers; not caused by routing</td></tr>
+<tr><td>Quarantine</td><td>The watchdog's response: discard flits for a tile that stopped consuming</td></tr>
+<tr><td>Route-at-write</td><td>Computing a flit's output port when it enters the buffer and storing it as a tag</td></tr>
+<tr><td>SNP, REQ, RSP</td><td>Snoop, request and response message classes</td></tr>
+<tr><td>Stamping</td><td>Overwriting a flit's source field with the router's own coordinates at ingress</td></tr>
+<tr><td>Switch allocation (SA)</td><td>Matching waiting flits to output ports each cycle</td></tr>
+<tr><td>Trust boundary</td><td>The router's local port, where trusted fabric meets an untrusted tile</td></tr>
+<tr><td>VC allocation (VA)</td><td>Choosing which VC at the next router a flit will use</td></tr>
+<tr><td>Virtual channel (VC)</td><td>One of several independent buffers sharing one physical link</td></tr>
+<tr><td>Virtual network (VN)</td><td>A group of VCs reserved for one message class</td></tr>
+<tr><td>Watchdog</td><td>The per-network counter that detects a tile returning no credit for too long</td></tr>
+<tr><td>Zero-load latency</td><td>Latency with no contention: pipeline depth times routers crossed</td></tr>
+</tbody></table>

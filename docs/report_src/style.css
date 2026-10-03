@@ -1,0 +1,142 @@
+/* Print stylesheet for the project report (Letter, rendered by headless Chrome).
+   Type: IBM Plex Sans body, Plex Sans Condensed headings, Plex Mono code.
+   Accent: one blue for structure; the orange/green/amber of the charts appear only in figures. */
+:root {
+  --ink: #141a22;
+  --ink2: #3b4553;
+  --muted: #6a7482;
+  --rule: #cdd3dc;
+  --rule2: #e4e8ee;
+  --head: #eef1f6;
+  --code: #f4f6f9;
+  --accent: #1c58a8;
+  --warn: #a8431a;
+  --good: #1f7a4d;
+  --f-body: "IBM Plex Sans", "Segoe UI", Arial, sans-serif;
+  --f-head: "IBM Plex Sans Condensed", "Arial Narrow", "IBM Plex Sans", Arial, sans-serif;
+  --f-mono: "IBM Plex Mono", Consolas, "Courier New", monospace;
+}
+
+@page {
+  size: Letter;
+  margin: 0.8in 0.8in 0.95in 0.8in;
+  @bottom-left { content: "Mesh NoC Router: Project Report"; font: 8pt "IBM Plex Sans", Arial, sans-serif; color: #6a7482; }
+  @bottom-right { content: counter(page); font: 8pt "IBM Plex Sans", Arial, sans-serif; color: #6a7482; }
+}
+@page :first { margin: 0; @bottom-left { content: none; } @bottom-right { content: none; } }
+
+* { box-sizing: border-box; }
+html { font-size: 10pt; }
+body { margin: 0; color: var(--ink); font: 10pt/1.5 var(--f-body); background: #fff; orphans: 3; widows: 3; hyphens: manual; }
+p { margin: 0 0 7pt; }
+a { color: var(--accent); text-decoration: none; }
+strong { font-weight: 600; }
+em { font-style: italic; }
+code, .mono { font-family: var(--f-mono); font-size: 0.86em; }
+code { background: var(--code); padding: 0.5pt 3pt; border-radius: 2pt; overflow-wrap: anywhere; }
+sup { font-size: 0.7em; line-height: 0; }
+
+/* ---------- headings ---------- */
+h1, h2, h3, h4 { font-family: var(--f-head); color: var(--ink); text-wrap: balance; }
+h1 { font-size: 24pt; font-weight: 600; line-height: 1.12; margin: 0 0 14pt; padding-bottom: 8pt; border-bottom: 2pt solid var(--ink); break-before: page; break-after: avoid; }
+h2 { font-size: 15pt; font-weight: 600; line-height: 1.2; margin: 20pt 0 7pt; break-after: avoid; }
+.hn { color: var(--accent); margin-right: 0.45em; }
+h3 { font-size: 11.5pt; font-weight: 600; margin: 14pt 0 4pt; break-after: avoid; }
+h4 { font-size: 10pt; font-weight: 600; margin: 10pt 0 3pt; break-after: avoid; color: var(--ink2); letter-spacing: 0.01em; }
+.eyebrow { font: 500 8pt var(--f-mono); letter-spacing: 0.07em; text-transform: uppercase; color: var(--muted); margin: 0 0 6pt; }
+.lead { font-size: 11.5pt; line-height: 1.5; color: var(--ink2); }
+
+ul, ol { margin: 0 0 8pt; padding-left: 16pt; }
+li { margin: 0 0 3pt; }
+li > ul, li > ol { margin: 3pt 0 3pt; }
+
+/* ---------- tables ---------- */
+table { width: 100%; border-collapse: collapse; margin: 6pt 0 11pt; font-size: 8.8pt; line-height: 1.38; }
+caption { caption-side: top; text-align: left; font: 600 8.8pt var(--f-head); color: var(--ink2); padding: 0 0 4pt; }
+thead { display: table-header-group; }
+th { text-align: left; font-weight: 600; background: var(--head); border-bottom: 1.2pt solid var(--ink2); padding: 4pt 6pt; vertical-align: bottom; }
+td { padding: 3.5pt 6pt; border-bottom: 0.6pt solid var(--rule); vertical-align: top; }
+tr { break-inside: avoid; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+tr.hl td { background: #f1f6fd; font-weight: 500; }
+tr.sub td { color: var(--muted); }
+table.tight td, table.tight th { padding: 2.5pt 5pt; }
+table.fixed { table-layout: fixed; }
+table.dense { font-size: 8.4pt; }
+table.dense td, table.dense th { padding: 2pt 5pt; }
+table.keep { break-inside: avoid; }
+.cols2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14pt; align-items: start; }
+.cols2 > * { min-width: 0; }
+
+/* ---------- code, figures, callouts ---------- */
+pre { font: 7.6pt/1.32 var(--f-mono); background: var(--code); border: 0.6pt solid var(--rule2); border-radius: 3pt; padding: 7pt 9pt; margin: 6pt 0 10pt; white-space: pre; overflow: hidden; break-inside: avoid; }
+pre.wrap { white-space: pre-wrap; }
+figure { margin: 8pt 0 12pt; break-inside: avoid; }
+figure img, figure svg { display: block; width: 100%; height: auto; }
+figure.narrow img, figure.narrow svg { width: 78%; margin: 0 auto; }
+figcaption { font-size: 8.4pt; line-height: 1.4; color: var(--muted); margin-top: 4pt; }
+figcaption b { color: var(--ink2); font-weight: 600; }
+.box { border-left: 3pt solid var(--accent); background: #f3f6fb; padding: 7pt 10pt 2pt; margin: 8pt 0 11pt; break-inside: avoid; }
+.box.warn { border-left-color: var(--warn); background: #fcf4ef; }
+.box.good { border-left-color: var(--good); background: #f1f8f4; }
+.box > .t { font: 600 8pt var(--f-mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent); margin-bottom: 3pt; }
+.box.warn > .t { color: var(--warn); }
+.box.good > .t { color: var(--good); }
+
+.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0; margin: 10pt 0 14pt; border-top: 2pt solid var(--ink); }
+.stat { padding: 7pt 9pt 7pt 0; border-bottom: 0.6pt solid var(--rule); }
+.stat .v { font: 500 17pt var(--f-mono); font-variant-numeric: tabular-nums; color: var(--ink); line-height: 1.1; }
+.stat .k { font-size: 8.2pt; color: var(--ink2); line-height: 1.3; margin-top: 2pt; }
+
+.flow { display: flex; align-items: stretch; gap: 0; margin: 8pt 0 12pt; break-inside: avoid; }
+.flow > span { flex: 1; border: 0.8pt solid var(--rule); background: var(--head); padding: 6pt 6pt; font-size: 8.4pt; line-height: 1.3; text-align: center; display: flex; flex-direction: column; justify-content: center; }
+.flow > span b { display: block; font-weight: 600; margin-bottom: 1pt; }
+.flow > i { flex: 0 0 11pt; display: flex; align-items: center; justify-content: center; color: var(--muted); font-style: normal; font-size: 10pt; }
+
+.small { font-size: 8.6pt; color: var(--ink2); }
+.muted { color: var(--muted); }
+.pass { color: var(--good); font-weight: 600; }
+.fail { color: var(--warn); font-weight: 600; }
+.nobreak { break-inside: avoid; }
+.pb { break-before: page; }
+
+/* ---------- svg diagrams ---------- */
+svg text { font-family: var(--f-body); fill: var(--ink); }
+svg .t-s { font-size: 9px; }
+svg .t-m { font-size: 10.5px; }
+svg .t-b { font-size: 11px; font-weight: 600; }
+svg .t-mono { font-family: var(--f-mono); font-size: 8.5px; }
+svg .t-mute { fill: var(--muted); }
+svg .t-acc { fill: var(--accent); }
+svg .t-warn { fill: var(--warn); }
+svg .t-white { fill: #fff; }
+svg .bx { fill: #eef1f6; stroke: #b9c2ce; stroke-width: 1; }
+svg .bx-a { fill: #dce8f7; stroke: #7fa3d3; stroke-width: 1; }
+svg .bx-o { fill: #fbe4d8; stroke: #e2956f; stroke-width: 1; }
+svg .bx-g { fill: #dcf1e6; stroke: #7cbf9d; stroke-width: 1; }
+svg .bx-y { fill: #fbefcc; stroke: #d9b24a; stroke-width: 1; }
+svg .bx-w { fill: #fff; stroke: #b9c2ce; stroke-width: 1; }
+svg .bx-bad { fill: #fbe4e2; stroke: #d98079; stroke-width: 1.2; }
+svg .ln { stroke: #8892a0; stroke-width: 1.2; fill: none; }
+svg .ln-a { stroke: var(--accent); stroke-width: 1.4; fill: none; }
+svg .ln-o { stroke: #d2622e; stroke-width: 1.4; fill: none; }
+svg .ln-d { stroke: #8892a0; stroke-width: 1; stroke-dasharray: 3 3; fill: none; }
+svg .dash-box { fill: none; stroke: #8892a0; stroke-width: 1; stroke-dasharray: 4 3; }
+
+/* ---------- cover + contents ---------- */
+.cover { height: 11in; width: 8.5in; padding: 1.1in 0.9in 0.9in; display: flex; flex-direction: column; break-after: page; background: #fff; position: relative; }
+.cover .bar { position: absolute; left: 0; top: 0; bottom: 0; width: 0.32in; background: var(--ink); }
+.cover .eyebrow { font-size: 9pt; }
+.cover h1 { font-size: 40pt; line-height: 1.05; border: 0; padding: 0; margin: 0.2in 0 0.16in; break-before: auto; }
+.cover .sub { font: 400 14pt/1.4 var(--f-head); color: var(--ink2); max-width: 5.6in; }
+.cover .meta { margin-top: auto; border-top: 1pt solid var(--ink); padding-top: 10pt; display: grid; grid-template-columns: 1fr 1fr; gap: 8pt 20pt; font-size: 9pt; }
+.cover .meta b { display: block; font: 500 7.5pt var(--f-mono); letter-spacing: 0.07em; text-transform: uppercase; color: var(--muted); margin-bottom: 1pt; }
+.cover svg.hero { width: 100%; height: auto; margin-top: 0.3in; }
+.toc { break-after: page; }
+.toc ol { list-style: none; padding: 0; margin: 0; }
+.toc li { margin: 0; }
+.toc a { display: flex; align-items: baseline; color: var(--ink); }
+.toc a .pg { margin-left: auto; padding-left: 8pt; font-variant-numeric: tabular-nums; color: var(--muted); }
+.toc a .dots { flex: 1; border-bottom: 0.6pt dotted #b8c0cb; margin: 0 4pt; transform: translateY(-2pt); min-width: 12pt; }
+.toc .l1 { font: 600 10.2pt var(--f-head); margin-top: 6pt; }
+.toc .l2 { font-size: 8.6pt; line-height: 1.32; padding-left: 16pt; color: var(--ink2); }

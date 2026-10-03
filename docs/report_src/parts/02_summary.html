@@ -1,0 +1,74 @@
+<h1 id="summary">Executive summary</h1>
+
+<p class="lead">This project is a parameterizable mesh <b>network-on-chip (NoC) router</b>, written in SystemVerilog and built over eight milestones. It starts as one combinational router and ends as a two-stage, virtual-channel router that carries a coherence-style protocol without deadlock and refuses to be hurt by one compromised tile. Every claim in this report was measured, and every measurement can be rerun with one command.</p>
+
+<div class="stats">
+  <div class="stat"><div class="v">0.905</div><div class="k">peak throughput of the VC router, flits per node per cycle (baseline router: 0.756)</div></div>
+  <div class="stat"><div class="v">0 / 48</div><div class="k">protocol runs that deadlock with one virtual network per message class</div></div>
+  <div class="stat"><div class="v">3 / 3</div><div class="k">attacks from a compromised tile contained, with 0 victim packets lost</div></div>
+  <div class="stat"><div class="v">18 / 18</div><div class="k">steps of the full project regression passing</div></div>
+</div>
+
+<h2 id="s-built">What was built</h2>
+<p>A router connects one compute tile to its four mesh neighbors. A grid of them moves messages between tiles. The project grew that router in eight steps, each one a self-contained folder with its own design, testbenches, tools and write-up:</p>
+<table class="tight">
+<thead><tr><th style="width:11%">Milestone</th><th>What it added</th></tr></thead>
+<tbody>
+<tr><td><b>M1</b></td><td>A single 5-port router: XY routing, round-robin arbitration, valid/ready handshake</td></tr>
+<tr><td><b>M2</b></td><td>A 3&times;3 mesh of M1 routers, with multi-hop routing verified corner to corner</td></tr>
+<tr><td><b>M3</b></td><td>Credit-based flow control and per-input buffers, so every hop takes a bounded, registered cycle</td></tr>
+<tr><td><b>M4</b></td><td>Randomized-traffic verification, a latency and throughput sweep, and an analytic model that explains the results</td></tr>
+<tr><td><b>M5</b></td><td>Virtual channels with a two-pass allocator, and virtual networks that remove protocol deadlock</td></tr>
+<tr><td><b>M6</b></td><td>Security at the tile boundary: source stamping, a virtual-network guard, and a starvation watchdog</td></tr>
+<tr><td><b>M7</b></td><td>Synthesis on a real cell library, two timing fixes, formal proofs, and lint</td></tr>
+<tr><td><b>M8</b></td><td>A two-stage pipelined router, whole-mesh timing, a decision rule for which router to build, and a 4&times;4 mesh study</td></tr>
+</tbody></table>
+<p>A ninth deliverable, the <b>NoC Mesh Replay</b>, is an interactive page that plays back real RTL simulations cycle by cycle, so the behavior described here can be watched as well as read.</p>
+
+<h2 id="s-results">Headline results</h2>
+<table>
+<thead><tr><th style="width:28%">Question</th><th>Answer</th><th style="width:10%">Ch.</th></tr></thead>
+<tbody>
+<tr><td>How much do virtual channels help?</td><td>Peak uniform throughput rises from <b>0.756 to 0.905</b> flits per node per cycle (+20%). At equal buffer storage the gain is +12%. It takes both virtual channels and a second allocation pass; either alone gains under 2%.</td><td>5.5</td></tr>
+<tr><td>Can the protocol deadlock the network?</td><td>Yes, in shared buffers, and routing is not the cause. With all message classes sharing buffers, 8 of 8 runs deadlock at 16 outstanding transactions per tile; tripling the buffers only moves the cliff to 32. With one virtual network per class: <b>0 deadlocks in 48 runs</b>, up to 64 outstanding.</td><td>5.5</td></tr>
+<tr><td>Can one compromised tile hurt the rest?</td><td>Against the unprotected router, spoofing, virtual-network hopping and a black hole all succeed. The hardened tile port contains all three, and with no attacker it reproduces the earlier results exactly, over 288 runs.</td><td>5.6</td></tr>
+<tr><td>What does it cost in hardware?</td><td>Whole 3&times;3 mesh on sky130, typical corner, per router: the simple router is 25,600 &micro;m&sup2; at 3.95 ns; the VC router with two-pass allocation is 54,500 &micro;m&sup2; at 8.66 ns. The security layer costs no area (&minus;3.4%).</td><td>5.7, 5.8</td></tr>
+<tr><td>Which router should a chip build?</td><td>It depends on the clock. Under about 4 ns, the pipelined simple router (0.221 flits per node per ns). At about 8 ns or slower, the pipelined VC router, with 12 to 22% more bandwidth. Virtual networks are required either way.</td><td>5.8</td></tr>
+<tr><td>Does it scale past 3&times;3?</td><td>On 4&times;4, latency matches a hop-count model and throughput stays under the channel-load bound. Virtual channels gain more there (+31%). The deadlock and security results hold.</td><td>5.8</td></tr>
+</tbody></table>
+
+<h2 id="s-evidence">What the evidence rests on</h2>
+<p>A result is only as good as the checks behind it. The project layers several independent ones, so that no single checker has to be trusted:</p>
+<ul>
+<li><b>Self-checking tests.</b> Every testbench prints PASS or FAIL. The final router has 28 directed tests, plus randomized scoreboards that account for every packet.</li>
+<li><b>Invariants checked every cycle</b> in every router: credit conservation, buffer bounds, virtual-network isolation, arbiter fairness, and "no flit leaves through an edge port".</li>
+<li><b>Equivalence runs.</b> Each new milestone, configured as the old one, must reproduce the old results digit for digit (288 runs for the security layer; 80 sweep points for the VC router).</li>
+<li><b>Mutation testing.</b> Eleven realistic bugs are planted one at a time, in both pipeline modes. Every one must be caught, so a passing run means the checkers can fail.</li>
+<li><b>Formal proofs</b> for all inputs within the bound, with four planted-bug negative controls that must each make a proof fail.</li>
+<li><b>Analytic models.</b> Throughput must stay under a channel-load bound and latency must match a hop-count model.</li>
+</ul>
+<p>The final regression runs all of it: <b>18 of 18 steps pass</b>, in about 49 minutes (Chapter 7).</p>
+
+<h2 id="s-status">Status, and what is not covered</h2>
+<p>The prototype is complete and verified. The design is a research and portfolio artifact, not a product, and it has deliberate limits:</p>
+<ul>
+<li>Packets are a single flit. Multi-flit wormhole packets were left out on purpose.</li>
+<li>Timing comes from pre-layout synthesis at one corner. It is sound for comparing designs and is not a sign-off frequency.</li>
+<li>Traffic is synthetic. There are no real workload traces.</li>
+<li>Security covers one compromised tile. Rate limiting against floods and timing side channels are out of scope, and the watchdog assumes a deadlock-free protocol (the virtual networks provide it).</li>
+</ul>
+<p>Chapter 10 lists these with their consequences, and proposes the follow-on work, including the hardware and micro-architecture specifications this report is meant to lead into.</p>
+
+<h2 id="s-read">How to read this report</h2>
+<table class="tight">
+<thead><tr><th style="width:30%">If you want</th><th>Read</th></tr></thead>
+<tbody>
+<tr><td>The one-page version</td><td>This chapter</td></tr>
+<tr><td>Why the project exists and what it covers</td><td>Chapters 2 and 3</td></tr>
+<tr><td>The story of each milestone, with its results</td><td>Chapter 5</td></tr>
+<tr><td>The design as built: interfaces, parameters, behavior</td><td>Chapter 6 and Appendix A</td></tr>
+<tr><td>How correctness is established</td><td>Chapter 7</td></tr>
+<tr><td>Every number in one place</td><td>Chapter 8 and Appendix B</td></tr>
+<tr><td>What went wrong and what it taught</td><td>Chapter 9</td></tr>
+<tr><td>To rerun any of it</td><td>Chapter 11</td></tr>
+</tbody></table>

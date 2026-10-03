@@ -1,0 +1,141 @@
+<h1 id="background">Background: how a NoC router works</h1>
+<p>This chapter explains the ideas the rest of the report relies on. A reader who already knows routers, credits and virtual channels can skip to Chapter 4.</p>
+
+<h2 id="b-packets">Packets and flits</h2>
+<p>Agents exchange <b>packets</b>. On the wire a packet is cut into <b>flits</b> (flow-control units), one of which crosses a link per clock cycle. In this project every packet is exactly one flit, so the two words mean the same thing here. The final design uses a 34-bit flit:</p>
+<figure>
+<svg viewBox="0 0 560 78" role="img" aria-label="Flit format: 2-bit class, 4-bit source x, 4-bit source y, 4-bit destination x, 4-bit destination y, 16-bit payload">
+  <g class="t-s t-mute" text-anchor="middle"><text x="26" y="10">33..32</text><text x="94" y="10">31..28</text><text x="150" y="10">27..24</text><text x="206" y="10">23..20</text><text x="262" y="10">19..16</text><text x="410" y="10">15..0</text></g>
+  <rect class="bx-o" x="2" y="16" width="48" height="34"/><rect class="bx" x="70" y="16" width="48" height="34"/><rect class="bx" x="126" y="16" width="48" height="34"/><rect class="bx-a" x="182" y="16" width="48" height="34"/><rect class="bx-a" x="238" y="16" width="48" height="34"/><rect class="bx-g" x="306" y="16" width="208" height="34"/>
+  <g class="t-m" text-anchor="middle"><text x="26" y="37" class="t-b">class</text><text x="94" y="37" class="t-b">srcX</text><text x="150" y="37" class="t-b">srcY</text><text x="206" y="37" class="t-b">dstX</text><text x="262" y="37" class="t-b">dstY</text><text x="410" y="37" class="t-b">payload</text></g>
+  <path d="M2 56V62H50V56" class="ln"/><path d="M70 56V62H174V56" class="ln"/><path d="M182 56V62H286V56" class="ln"/><path d="M306 56V62H514V56" class="ln"/>
+  <g class="t-s" text-anchor="middle"><text x="26" y="74">message class</text><text x="122" y="74">sender (stamped by router)</text><text x="234" y="74">destination</text><text x="410" y="74">data</text></g>
+</svg>
+<figcaption><b>Figure 3.1.</b> The 34-bit flit of the final design. Coordinates are 4 bits, so meshes up to 16&times;16 are addressable. The class field (request, snoop, response) selects the virtual network. Inside a router each buffered flit also carries a 3-bit route tag, so buffers store 37 bits per slot.</figcaption>
+</figure>
+
+<h2 id="b-routing">Routing</h2>
+<p>Each router decides, from the destination coordinates and its own, which of its five ports a flit leaves on. The project uses <b>XY dimension-order routing</b>: move along X until the column matches, then along Y until the row matches, then deliver to the local tile.</p>
+<figure class="narrow">
+<svg viewBox="0 0 380 230" role="img" aria-label="XY routing decision order">
+  <defs><marker id="b2" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L8,4 L0,8z" fill="#8892a0"/></marker></defs>
+  <g class="t-m">
+    <rect class="bx-a" x="10" y="8" width="150" height="30" rx="5"/><text x="85" y="28" text-anchor="middle">dest X &gt; my X ?</text>
+    <rect class="bx-a" x="10" y="62" width="150" height="30" rx="5"/><text x="85" y="82" text-anchor="middle">dest X &lt; my X ?</text>
+    <rect class="bx-a" x="10" y="116" width="150" height="30" rx="5"/><text x="85" y="136" text-anchor="middle">dest Y &gt; my Y ?</text>
+    <rect class="bx-a" x="10" y="170" width="150" height="30" rx="5"/><text x="85" y="190" text-anchor="middle">dest Y &lt; my Y ?</text>
+    <rect class="bx-g" x="236" y="8" width="120" height="30" rx="5"/><text x="296" y="28" text-anchor="middle">go East</text>
+    <rect class="bx-g" x="236" y="62" width="120" height="30" rx="5"/><text x="296" y="82" text-anchor="middle">go West</text>
+    <rect class="bx-g" x="236" y="116" width="120" height="30" rx="5"/><text x="296" y="136" text-anchor="middle">go South</text>
+    <rect class="bx-g" x="236" y="170" width="120" height="30" rx="5"/><text x="296" y="190" text-anchor="middle">go North</text>
+    <rect class="bx-y" x="10" y="208" width="346" height="20" rx="5"/><text x="183" y="222" text-anchor="middle" class="t-s">otherwise: this router is the destination, deliver to Local</text>
+  </g>
+  <g class="ln" marker-end="url(#b2)"><path d="M160 23H234"/><path d="M160 77H234"/><path d="M160 131H234"/><path d="M160 185H234"/></g>
+  <g class="ln"><path d="M85 38V62" marker-end="url(#b2)"/><path d="M85 92V116" marker-end="url(#b2)"/><path d="M85 146V170" marker-end="url(#b2)"/><path d="M85 200V208" marker-end="url(#b2)"/></g>
+  <g class="t-s t-mute"><text x="168" y="19">yes</text><text x="168" y="73">yes</text><text x="168" y="127">yes</text><text x="168" y="181">yes</text><text x="90" y="52">no</text><text x="90" y="106">no</text><text x="90" y="160">no</text></g>
+</svg>
+<figcaption><b>Figure 3.2.</b> The routing decision at every router. Row numbers grow downward, so a larger Y is South.</figcaption>
+</figure>
+<p>The rule is not a style choice. A packet never turns from Y back to X, so waiting dependencies between packets can never form a cycle through the routing function. XY routing is deadlock-free on a mesh by construction. This matters later, because it separates two different kinds of deadlock: the one routing prevents, and the one it cannot (Section 3.6).</p>
+
+<h2 id="b-arb">Arbitration</h2>
+<p>Several inputs may want the same output in the same cycle, and one output carries one flit per cycle. A <b>round-robin arbiter</b> picks the winner: it remembers who won last and gives the next requester priority, so no input is starved. One arbiter sits at each output, and fairness is a checked property, not an assumption (a requester that keeps asking is granted within a bounded number of cycles, which Chapter 7 proves formally).</p>
+
+<h2 id="b-flow">Flow control: handshakes and credits</h2>
+<p>A flit may only be sent if the receiver has room for it. M1 and M2 use a <b>valid/ready handshake</b>: the receiver says "ready" each cycle. That forces a combinational path from every receiver back to every sender, so one clock cycle spans the whole mesh and the design could not run at any useful frequency.</p>
+<p>From M3 on the project uses <b>credit-based flow control</b>, which is what real on-chip networks use. The sender keeps a counter of free slots in the receiver's buffer. Sending costs one credit; the receiver returns a credit when it frees a slot. Nothing is combinational across a hop.</p>
+<figure>
+<svg viewBox="0 0 560 190" role="img" aria-label="Credit loop between a sender and a receiver">
+  <defs>
+    <marker id="b3" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L8,4 L0,8z" fill="#1c58a8"/></marker>
+    <marker id="b3o" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L8,4 L0,8z" fill="#d2622e"/></marker>
+  </defs>
+  <rect class="bx-w" x="10" y="14" width="190" height="150" rx="8"/><text x="105" y="34" text-anchor="middle" class="t-b">Sender (router A)</text>
+  <rect class="bx-y" x="30" y="52" width="150" height="46" rx="5"/><text x="105" y="72" text-anchor="middle" class="t-m">credit counter</text><text x="105" y="88" text-anchor="middle" class="t-mono t-mute">starts at BUFFER_DEPTH</text>
+  <text x="105" y="124" text-anchor="middle" class="t-s">sends only while credits &gt; 0</text><text x="105" y="138" text-anchor="middle" class="t-s">each send: credits &minus; 1</text><text x="105" y="152" text-anchor="middle" class="t-s">each credit pulse: credits + 1</text>
+  <rect class="bx-w" x="360" y="14" width="190" height="150" rx="8"/><text x="455" y="34" text-anchor="middle" class="t-b">Receiver (router B)</text>
+  <g><rect class="bx-g" x="380" y="52" width="36" height="34" rx="3"/><rect class="bx-g" x="420" y="52" width="36" height="34" rx="3"/><rect class="bx" x="460" y="52" width="36" height="34" rx="3"/><rect class="bx" x="500" y="52" width="36" height="34" rx="3"/></g>
+  <text x="455" y="104" text-anchor="middle" class="t-m">input FIFO (BUFFER_DEPTH slots)</text>
+  <text x="455" y="124" text-anchor="middle" class="t-s">when a flit leaves the FIFO,</text><text x="455" y="138" text-anchor="middle" class="t-s">B returns one credit upstream</text>
+  <path d="M200 60H358" class="ln-a" marker-end="url(#b3)"/><text x="279" y="52" text-anchor="middle" class="t-s t-acc">flit (valid, vc, data)</text>
+  <path d="M358 120H202" class="ln-o" marker-end="url(#b3o)"/><text x="279" y="138" text-anchor="middle" class="t-s" style="fill:#d2622e">credit_return pulse</text>
+  <text x="280" y="182" text-anchor="middle" class="t-s t-mute">credits in flight + free slots at B + flits buffered at B = BUFFER_DEPTH, always</text>
+</svg>
+<figcaption><b>Figure 3.3.</b> The credit loop. The invariant in the last line is checked in every router every cycle, and proved formally for the whole router in M7.</figcaption>
+</figure>
+
+<h2 id="b-hol">Head-of-line blocking and virtual channels</h2>
+<p>With one FIFO per input port, only the flit at the head can request an output. If its output is busy, every flit behind it waits, including flits bound for idle outputs. This is <b>head-of-line (HOL) blocking</b>. Deeper buffers hold more waiting flits but do not let any of them jump the queue, so they barely help (Chapter 5 measures +7% for doubling the depth).</p>
+<p>A <b>virtual channel (VC)</b> splits an input's buffer into several independent FIFOs that share the one physical link. A small <code>vc</code> field on each flit names which FIFO at the far end it goes into, and credits are counted per VC. A blocked flit now blocks only its own VC.</p>
+<figure>
+<svg viewBox="0 0 560 150" role="img" aria-label="One FIFO blocks flits behind a blocked head; two virtual channels let the second flit pass">
+  <g class="t-b"><text x="10" y="16">One FIFO per input</text><text x="300" y="16">Two virtual channels per input</text></g>
+  <g class="t-s t-mute"><text x="10" y="132">East is busy, so the flit for North waits behind the flit for East</text><text x="300" y="132">Only VC0 waits. The flit for North leaves at once from VC1</text></g>
+  <rect class="bx-w" x="10" y="34" width="244" height="40" rx="4"/>
+  <rect class="bx-bad" x="16" y="40" width="54" height="28" rx="3"/><text x="43" y="58" text-anchor="middle" class="t-m">A &rarr; E</text>
+  <rect class="bx-a" x="76" y="40" width="54" height="28" rx="3"/><text x="103" y="58" text-anchor="middle" class="t-m">B &rarr; N</text>
+  <text x="140" y="58" class="t-s t-mute">head is on the left</text>
+  <g class="t-s"><text x="43" y="92" text-anchor="middle" class="t-warn">blocked</text><text x="103" y="92" text-anchor="middle" class="t-warn">stuck behind A</text></g>
+  <path d="M254 54H300" class="ln" />
+  <rect class="bx-w" x="300" y="30" width="244" height="30" rx="4"/><text x="306" y="25" class="t-s t-mute">VC0</text>
+  <rect class="bx-bad" x="306" y="35" width="54" height="20" rx="3"/><text x="333" y="49" text-anchor="middle" class="t-m">A &rarr; E</text>
+  <rect class="bx-w" x="300" y="78" width="244" height="30" rx="4"/><text x="306" y="73" class="t-s t-mute">VC1</text>
+  <rect class="bx-g" x="306" y="83" width="54" height="20" rx="3"/><text x="333" y="97" text-anchor="middle" class="t-m">B &rarr; N</text>
+  <path d="M362 93H420" class="ln-a"/><text x="426" y="97" class="t-s t-acc">goes to North now</text>
+</svg>
+<figcaption><b>Figure 3.4.</b> Head-of-line blocking and its fix. M5's directed test T2 replays exactly this case on a 1-VC and a 2-VC router.</figcaption>
+</figure>
+<p>Adding VCs adds two decisions per hop. <b>VC allocation</b> picks which VC at the next router a flit will use. <b>Switch allocation</b> matches waiting flits to output ports each cycle. A single-pass allocator throws most of the new choices away, which is why M5 also adds an optional second pass (Section 5.5).</p>
+
+<h2 id="b-deadlock">Message classes and protocol deadlock</h2>
+<p>Routing deadlock (a ring of packets each waiting for a buffer the next holds) is prevented by XY routing. A different problem remains: <b>protocol deadlock</b>, which comes from dependencies between <i>message types</i>, not from paths.</p>
+<p>A coherence transaction is a chain of three messages. A requester sends a <b>request (REQ)</b> to the line's home. The home sends a <b>snoop (SNP)</b> to the current owner. The owner sends a <b>response (RSP)</b> to the requester. Each endpoint has finite space, so each follows a rule: a home accepts a REQ only if it has room to queue the SNP it now owes, and an owner accepts a SNP only if it has room to queue the RSP. A requester always accepts an RSP.</p>
+<figure>
+<svg viewBox="0 0 560 190" role="img" aria-label="The three-message chain and how shared buffers deadlock">
+  <defs>
+    <marker id="b5" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L8,4 L0,8z" fill="#8892a0"/></marker>
+    <marker id="b5r" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L8,4 L0,8z" fill="#d2622e"/></marker>
+  </defs>
+  <text x="10" y="14" class="t-b">The transaction chain</text>
+  <rect class="bx-a" x="10" y="26" width="86" height="34" rx="5"/><text x="53" y="47" text-anchor="middle" class="t-m">Requester</text>
+  <rect class="bx-a" x="180" y="26" width="86" height="34" rx="5"/><text x="223" y="47" text-anchor="middle" class="t-m">Home</text>
+  <rect class="bx-a" x="350" y="26" width="86" height="34" rx="5"/><text x="393" y="47" text-anchor="middle" class="t-m">Owner</text>
+  <g class="ln" marker-end="url(#b5)"><path d="M96 43H178"/><path d="M266 43H348"/><path d="M393 60V76H53V62"/></g>
+  <g class="t-s"><text x="137" y="36" text-anchor="middle">REQ</text><text x="307" y="36" text-anchor="middle">SNP</text><text x="223" y="88" text-anchor="middle">RSP</text></g>
+  <text x="456" y="40" class="t-s t-mute">each message is</text><text x="456" y="52" class="t-s t-mute">caused by the last</text>
+  <text x="10" y="116" class="t-b">With shared buffers, the waits form a loop</text>
+  <rect class="bx-o" x="10" y="128" width="120" height="44" rx="5"/><text x="70" y="146" text-anchor="middle" class="t-s">A home cannot accept</text><text x="70" y="158" text-anchor="middle" class="t-s">the REQ at its head</text>
+  <rect class="bx-o" x="220" y="128" width="120" height="44" rx="5"/><text x="280" y="146" text-anchor="middle" class="t-s">because its SNP</text><text x="280" y="158" text-anchor="middle" class="t-s">queue is full</text>
+  <rect class="bx-o" x="430" y="128" width="120" height="44" rx="5"/><text x="490" y="146" text-anchor="middle" class="t-s">SNPs cannot enter: the</text><text x="490" y="158" text-anchor="middle" class="t-s">network is full of REQs</text>
+  <g class="ln-o" marker-end="url(#b5r)"><path d="M130 150H218"/><path d="M340 150H428"/><path d="M490 172V184H70V174"/></g>
+  <text x="280" y="183" text-anchor="middle" class="t-s t-warn">and those REQs wait for the same homes: the loop closes</text>
+</svg>
+<figcaption><b>Figure 3.5.</b> Protocol deadlock. No routing cycle is involved. The RSPs that would end every transaction are stuck in the same buffers as the REQs and SNPs waiting on each other.</figcaption>
+</figure>
+<p>The fix is a <b>virtual network (VN)</b>: a group of VCs reserved for one message class, so one class's backlog can never fill the buffers another class needs. With one VN per class the argument runs backward from the end of the chain: RSPs always drain, so SNPs always drain, so REQs always drain.</p>
+
+<h2 id="b-sec">Threat model for a shared fabric</h2>
+<p>The network connects agents that may not trust each other. The project's model is deliberately narrow: <b>one tile is compromised</b>. It can inject any flit, with any header fields, on any VC, as fast as its credits allow, and it can refuse to consume what is delivered to it. The routers, the links between them and all other tiles are trusted. Chapter 5.6 states the goals (authenticity, isolation, availability), the three attacks and the defenses, which all sit at the one place where a tile meets the network: the router's local port.</p>
+
+<h2 id="b-metrics">How performance and cost are measured</h2>
+<table>
+<thead><tr><th style="width:23%">Term</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td><b>Offered load</b></td><td>The rate tiles try to inject packets, in flits per node per cycle. The network may not be able to take it.</td></tr>
+<tr><td><b>Accepted throughput</b></td><td>The rate packets are actually delivered, per tile per cycle. Equal to offered load below saturation, flat above it.</td></tr>
+<tr><td><b>Zero-load latency</b></td><td>Latency with no contention: pure pipeline depth times the routers crossed. A useful sanity check, because it can be predicted from the hop count.</td></tr>
+<tr><td><b>Saturation (the knee)</b></td><td>The highest offered load whose average latency stays within 3&times; the zero-load latency.</td></tr>
+<tr><td><b>Open-loop sweep</b></td><td>Each tile flips a biased coin every cycle to create a packet and queues it in an unbounded source queue. If the network cannot keep up the queues grow and total latency blows up, and that blow-up is what is measured. Phases: warmup (1,000 cycles), measure (2,000), drain, then a flush that must empty the network completely.</td></tr>
+<tr><td><b>Traffic patterns</b></td><td>Uniform random (average case); transpose, (x,y) to (y,x) (loads specific diagonals); bit-complement, mirror through the center (long paths); hotspot, 25% of traffic to tile 0 (many-to-one, like a memory controller).</td></tr>
+<tr><td><b>Area</b></td><td>Total standard-cell area from synthesis, in &micro;m&sup2;. Most of a router is buffer storage.</td></tr>
+<tr><td><b>Critical path</b></td><td>The longest register-to-register path after mapping, in ns. Pre-layout: no wire delay, no clock-to-q or setup time. Sound for comparing designs, not a sign-off number.</td></tr>
+<tr><td><b>Throughput per ns</b></td><td>Peak throughput per cycle divided by the critical path. The fair way to compare routers with different clock periods.</td></tr>
+</tbody></table>
+
+<h2 id="b-formal">Simulation, formal verification and mutation testing</h2>
+<p>These are three different kinds of evidence, and the project uses all three.</p>
+<ul>
+<li><b>Simulation</b> checks properties on the traffic that happened to run. It is fast and scales to whole meshes, but it can only find bugs its stimulus reaches.</li>
+<li><b>Formal verification</b> searches every possible input sequence for a counterexample and either finds one or proves there is none (within a stated bound, or for all time when proved by induction). It is exhaustive but works on small pieces: an arbiter, or one router with its neighbors modeled as assumptions.</li>
+<li><b>Mutation testing</b> checks the checkers. It plants a realistic bug, reruns the tests, and requires them to fail. A test suite that passes on buggy hardware is not evidence of anything.</li>
+</ul>

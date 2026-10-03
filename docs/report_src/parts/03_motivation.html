@@ -1,0 +1,104 @@
+<h1 id="motivation">Motivation and scope</h1>
+
+<h2 id="m-problem">The problem: moving messages on a chip</h2>
+<p>A modern processor is no longer one core and a memory. It is dozens of agents: cores, cache slices, memory controllers, I/O blocks and accelerators. They all need to talk to each other, and the traffic between them decides how fast the whole chip runs.</p>
+<p>A single shared bus cannot carry that traffic. Only one agent can speak at a time, and the wires get longer and slower as agents are added. The standard answer is a <b>network-on-chip</b>: each agent attaches to a small <b>router</b>, routers connect to their neighbors, and a message hops from router to router until it arrives. The usual layout for large chips is a two-dimensional <b>mesh</b>, because it is regular, it maps naturally onto a floorplan, and its wires are all short.</p>
+
+<figure class="narrow">
+<svg viewBox="0 0 440 330" role="img" aria-label="A three by three mesh. Each router connects to its neighbors and to its own tile.">
+  <defs><marker id="mk-mesh" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L8,4 L0,8z" fill="#8892a0"/></marker></defs>
+  <g class="ln">
+    <path d="M110 55H190M250 55H330M110 165H190M250 165H330M110 275H190M250 275H330"/>
+    <path d="M70 95V125M70 205V235M220 95V125M220 205V235M370 95V125M370 205V235"/>
+  </g>
+  <g>
+    <rect class="bx-a" x="30" y="15" width="80" height="80" rx="7"/><rect class="bx-a" x="180" y="15" width="80" height="80" rx="7"/><rect class="bx-a" x="330" y="15" width="80" height="80" rx="7"/>
+    <rect class="bx-a" x="30" y="125" width="80" height="80" rx="7"/><rect class="bx-a" x="180" y="125" width="80" height="80" rx="7"/><rect class="bx-a" x="330" y="125" width="80" height="80" rx="7"/>
+    <rect class="bx-a" x="30" y="235" width="80" height="80" rx="7"/><rect class="bx-a" x="180" y="235" width="80" height="80" rx="7"/><rect class="bx-a" x="330" y="235" width="80" height="80" rx="7"/>
+  </g>
+  <g class="t-m" text-anchor="middle">
+    <text x="70" y="50" class="t-b">router</text><text x="70" y="66" class="t-mono t-mute">(0,0)</text>
+    <text x="220" y="50" class="t-b">router</text><text x="220" y="66" class="t-mono t-mute">(1,0)</text>
+    <text x="370" y="50" class="t-b">router</text><text x="370" y="66" class="t-mono t-mute">(2,0)</text>
+    <text x="70" y="160" class="t-b">router</text><text x="70" y="176" class="t-mono t-mute">(0,1)</text>
+    <text x="220" y="160" class="t-b">router</text><text x="220" y="176" class="t-mono t-mute">(1,1)</text>
+    <text x="370" y="160" class="t-b">router</text><text x="370" y="176" class="t-mono t-mute">(2,1)</text>
+    <text x="70" y="270" class="t-b">router</text><text x="70" y="286" class="t-mono t-mute">(0,2)</text>
+    <text x="220" y="270" class="t-b">router</text><text x="220" y="286" class="t-mono t-mute">(1,2)</text>
+    <text x="370" y="270" class="t-b">router</text><text x="370" y="286" class="t-mono t-mute">(2,2)</text>
+  </g>
+  <g>
+    <rect class="bx-w" x="82" y="72" width="22" height="18" rx="3"/><rect class="bx-w" x="232" y="72" width="22" height="18" rx="3"/><rect class="bx-w" x="382" y="72" width="22" height="18" rx="3"/>
+    <rect class="bx-w" x="82" y="182" width="22" height="18" rx="3"/><rect class="bx-w" x="232" y="182" width="22" height="18" rx="3"/><rect class="bx-w" x="382" y="182" width="22" height="18" rx="3"/>
+    <rect class="bx-w" x="82" y="292" width="22" height="18" rx="3"/><rect class="bx-w" x="232" y="292" width="22" height="18" rx="3"/><rect class="bx-w" x="382" y="292" width="22" height="18" rx="3"/>
+  </g>
+  <g class="t-s t-mute" text-anchor="middle"><text x="93" y="85">tile</text><text x="243" y="85">tile</text><text x="393" y="85">tile</text><text x="93" y="195">tile</text><text x="243" y="195">tile</text><text x="393" y="195">tile</text><text x="93" y="305">tile</text><text x="243" y="305">tile</text><text x="393" y="305">tile</text></g>
+</svg>
+<figcaption><b>Figure 2.1.</b> A 3&times;3 mesh. Each router has five ports: north, south, east, west, and a local port to its own tile (a core, a cache slice, a memory controller). Tile number is y &times; width + x.</figcaption>
+</figure>
+
+<p>The router is the building block, and its design decides three things about the whole network:</p>
+<ul>
+<li><b>How much traffic it carries</b> (bandwidth) and how quickly (latency).</li>
+<li><b>Whether it works at all</b>, because a network that can deadlock under the wrong traffic mix is broken no matter how fast it is.</li>
+<li><b>What it costs</b> in area and in clock frequency, since the router sits on the critical path between every pair of agents.</li>
+</ul>
+
+<h2 id="m-why">Why this project</h2>
+<p>The project has one technical aim and one practical one.</p>
+<p><b>Technical aim.</b> Build a real router the way a design team would, and answer four questions with evidence rather than opinion:</p>
+<ol>
+<li><b>Performance.</b> Where does a simple router lose bandwidth, and what fixes it?</li>
+<li><b>Correctness.</b> What breaks when different message types share buffers, and what prevents it?</li>
+<li><b>Trust.</b> What can a single misbehaving agent do to everyone else on a shared fabric, and how is that stopped at the cheapest possible point?</li>
+<li><b>Implementation.</b> What does each feature cost in silicon area and clock period, and which router should a given chip actually build?</li>
+</ol>
+<p><b>Practical aim.</b> Produce a complete RTL design and verification portfolio piece: a design with a specification, an architecture that evolves for stated reasons, a layered verification environment, synthesis and formal results, and honest documentation of what worked, what failed and what was corrected.</p>
+
+<h2 id="m-matter">Why these questions matter</h2>
+<table>
+<thead><tr><th style="width:20%">Topic</th><th>Why it matters in a real chip</th><th style="width:25%">Where it is answered</th></tr></thead>
+<tbody>
+<tr><td><b>Head-of-line blocking</b></td><td>A simple router with one queue per input wastes link bandwidth: a flit waiting for a busy output blocks everything behind it, even flits bound for idle outputs. A network that saturates early forces designers to over-provision links or accept lower performance.</td><td>M4 measures it, M5 fixes it</td></tr>
+<tr><td><b>Protocol deadlock</b></td><td>Cache-coherence messages depend on each other (a request causes a snoop, which causes a response). If they share buffers, a full network can wait on itself forever. It does not appear at light load, so a regression that only runs light traffic will ship the bug. Coherence protocols such as ARM's AMBA CHI separate requests, snoops and responses into their own channels for this reason.</td><td>M5</td></tr>
+<tr><td><b>Fabric security</b></td><td>The interconnect is a shared resource between agents that may not trust each other: a compromised accelerator, buggy firmware, a tenant. The network is the one place that can enforce identity and fairness for everybody, so the check belongs there.</td><td>M6</td></tr>
+<tr><td><b>Timing and area</b></td><td>An architecture idea is only worth what it costs. A feature that raises throughput per cycle but lengthens the clock period can lose per nanosecond. Only synthesis can say.</td><td>M7, M8</td></tr>
+<tr><td><b>Verification quality</b></td><td>A checker that has never failed may be unable to fail. Showing that the verification catches planted bugs, and that a refactor changes nothing, is what turns "all tests pass" into evidence.</td><td>M4 to M8, Chapter 7</td></tr>
+</tbody></table>
+
+<h2 id="m-scope">Scope</h2>
+<div class="cols2">
+<div>
+<h4>In scope</h4>
+<ul>
+<li>A 5-port mesh router with XY routing, in SystemVerilog, for mesh sizes up to 16&times;16 (4-bit coordinates)</li>
+<li>Credit-based flow control, virtual channels, virtual networks, a two-pass allocator, an optional second pipeline stage</li>
+<li>A three-class coherence-style traffic model (request, snoop, response)</li>
+<li>Defenses at the tile port against one compromised tile</li>
+<li>Synthesis on sky130, formal proofs, lint, mutation testing, analytic checks</li>
+<li>A replay visualizer for the final design</li>
+</ul>
+</div>
+<div>
+<h4>Out of scope, on purpose</h4>
+<ul>
+<li>Multi-flit wormhole packets (head, body, tail handling)</li>
+<li>Adaptive routing, non-mesh topologies</li>
+<li>Placement, routing, and sign-off timing</li>
+<li>Real workload traces; only synthetic patterns</li>
+<li>Rate limiting, confidentiality and side-channel defenses</li>
+<li>A full coherence protocol; the protocol model only has to create the dependency chain that causes deadlock</li>
+</ul>
+</div>
+</div>
+<p>Keeping packets to a single flit is the largest simplification. It keeps the router small enough to verify completely, and every result in this report is stated for that case. Chapter 10 describes what multi-flit packets would add.</p>
+
+<h2 id="m-success">How "done" was decided</h2>
+<p>The project follows four rules about when a milestone is finished:</p>
+<ol>
+<li>Its own regression passes, and the script exits with an error if any step does not print its pass line.</li>
+<li>Every claim in its write-up is backed by a command that reproduces it.</li>
+<li>If it changes an earlier design, it is configured to behave as that design and must reproduce the earlier results exactly.</li>
+<li>Any defect found in an earlier result is corrected openly, in the earlier document, not only the later one.</li>
+</ol>
+<p>Rule 4 was used. M8 found that M7's timing method overstated its fixes by about a factor of two, and M7's write-up now carries a correction note at the top (Chapter 9).</p>

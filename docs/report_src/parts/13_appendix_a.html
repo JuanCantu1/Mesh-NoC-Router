@@ -1,0 +1,47 @@
+<h1 id="app-a" class="appx">Constants, controls and signals</h1>
+
+<h2 id="a-pkg">A.1&nbsp;&nbsp;Package constants (<code>noc_pkg.sv</code>)</h2>
+<table class="tight">
+<thead><tr><th style="width:26%">Name</th><th style="width:14%">Value</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td><code>COORD_WIDTH</code></td><td>4</td><td>Bits per mesh coordinate; meshes up to 16&times;16</td></tr>
+<tr><td><code>DATA_WIDTH</code></td><td>16</td><td>Payload bits</td></tr>
+<tr><td><code>MCLASS_W</code></td><td>2</td><td>Bits of message class</td></tr>
+<tr><td><code>NUM_MCLASSES</code></td><td>3</td><td>Message classes supported by virtual networks</td></tr>
+<tr><td><code>MC_REQ</code>, <code>MC_SNP</code>, <code>MC_RSP</code></td><td>0, 1, 2</td><td>Request, snoop, response</td></tr>
+<tr><td><code>NUM_PORTS</code></td><td>5</td><td>Ports per router</td></tr>
+<tr><td><code>PORT_N</code>, <code>PORT_S</code>, <code>PORT_E</code>, <code>PORT_W</code>, <code>PORT_L</code></td><td>0, 1, 2, 3, 4</td><td>Port numbering</td></tr>
+<tr><td><code>VC_W</code></td><td>3</td><td>Bits of VC number on a link</td></tr>
+<tr><td><code>MAX_VCS</code></td><td>8</td><td>Largest <code>NUM_VNS &times; VCS_PER_VN</code></td></tr>
+<tr><td><code>flit_t</code></td><td>34 bits</td><td>Packed struct, most significant first: <code>mclass[1:0]</code>, <code>src_x[3:0]</code>, <code>src_y[3:0]</code>, <code>dest_x[3:0]</code>, <code>dest_y[3:0]</code>, <code>payload[15:0]</code></td></tr>
+<tr><td><code>vn_of(class, num_vns)</code></td><td>function</td><td>Network of a class: 0 when <code>num_vns</code> is 1, otherwise the class number</td></tr>
+<tr><td><code>assertion_violations</code></td><td>simulation only</td><td>Global counter; every testbench fails if it is nonzero</td></tr>
+</tbody></table>
+
+<h2 id="a-alarm">A.2&nbsp;&nbsp;Alarm vector</h2>
+<table class="tight">
+<thead><tr><th style="width:12%">Bit</th><th style="width:14%">Kind</th><th>Meaning (all zero when <code>SECURE=0</code>)</th></tr></thead>
+<tbody>
+<tr><td><code>alarm[0]</code></td><td>pulse</td><td>A flit from the local tile was refused at ingress: wrong network, or a VC that does not exist. Its credit is not returned.</td></tr>
+<tr><td><code>alarm[1]</code></td><td>level</td><td>At least one network of the local ejection port is quarantined: the tile stopped consuming.</td></tr>
+<tr><td><code>alarm[2]</code></td><td>pulse</td><td>A flit addressed to the quarantined tile was discarded. In two-stage mode it pulses in the cycle the discarded flit is visible on the output.</td></tr>
+</tbody></table>
+
+<h2 id="a-controls">A.3&nbsp;&nbsp;Testbench controls</h2>
+<p>Compile-time macros select the router configuration; run-time plusargs select the scenario. Defaults are shown where the testbench defines them.</p>
+<table class="tight">
+<thead><tr><th style="width:23%">Control</th><th style="width:15%">Testbench</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td><code>PROTO_NUM_VNS</code> (3), <code>PROTO_VCS_PER_VN</code> (1), <code>PROTO_BUFFER_DEPTH</code> (4), <code>PROTO_SA_ITERS</code> (1), <code>PROTO_SECURE</code> (1), <code>PROTO_WD_LIMIT</code> (256), <code>PROTO_PIPE</code> (0), <code>PROTO_MESH_W</code> (3), <code>PROTO_MESH_H</code> (3)</td><td>protocol_tb</td><td>Router and mesh configuration of the protocol testbench</td></tr>
+<tr><td><code>SWEEP_NUM_VNS</code> (1), <code>SWEEP_VCS_PER_VN</code> (1), <code>SWEEP_BUFFER_DEPTH</code> (4), <code>SWEEP_SA_ITERS</code> (1), <code>SWEEP_SECURE</code> (1), <code>SWEEP_WD_LIMIT</code> (256), <code>SWEEP_PIPE</code> (0), <code>SWEEP_MESH_W</code> (3), <code>SWEEP_MESH_H</code> (3)</td><td>latency_sweep_tb</td><td>The same, for the sweep testbench</td></tr>
+<tr><td><code>TB_PIPE</code></td><td>router_harness</td><td>Hop structure of the single-router harness</td></tr>
+<tr><td><code>+OUTSTANDING=n</code> (8)</td><td>protocol_tb</td><td>Transactions in flight per requester</td></tr>
+<tr><td><code>+RATE=n</code> (1000 here, 200 in the sweep)</td><td>both</td><td>Injection attempt rate in permille per cycle</td></tr>
+<tr><td><code>+SEED=n</code> (1), <code>+CYCLES=n</code> (20000)</td><td>protocol_tb</td><td>Random seed; cycles of traffic</td></tr>
+<tr><td><code>+EXPECT_DEADLOCK</code></td><td>protocol_tb</td><td>Treat a deadlock as the expected, passing outcome</td></tr>
+<tr><td><code>+ATTACK=n</code>, <code>+ATTACKER=tile</code> (8)</td><td>protocol_tb</td><td>1 spoofing, 2 network hopping, 3 flood control; which tile attacks</td></tr>
+<tr><td><code>+EXPECT_COMPROMISE</code></td><td>both</td><td>Treat a successful attack as the expected, passing outcome (used against <code>SECURE=0</code>)</td></tr>
+<tr><td><code>+PATTERN=n</code> (0)</td><td>latency_sweep_tb</td><td>0 uniform, 1 transpose, 2 bit-complement, 3 hotspot</td></tr>
+<tr><td><code>+BLACKHOLE=tile</code>, <code>+BH_START=cycle</code></td><td>latency_sweep_tb</td><td>Which tile stops consuming, and from which cycle (0 means from reset)</td></tr>
+<tr><td><code>+NODUMP</code></td><td>both</td><td>Skip the VCD, which is large for a full mesh</td></tr>
+</tbody></table>

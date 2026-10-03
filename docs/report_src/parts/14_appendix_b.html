@@ -1,0 +1,45 @@
+<h1 id="app-b" class="appx">Complete result tables</h1>
+<p>Tables B.3 and B.4 are generated from the sweep CSVs by <code>docs/report_src/make_tables.py</code>. Tables B.1 and B.2 are transcribed from the synthesis CSVs.</p>
+
+<h2 id="b-synth">B.1&nbsp;&nbsp;Whole-mesh synthesis, all configurations</h2>
+<p>sky130_fd_sc_hd, typical corner, flattened 3&times;3 mesh, pre-layout. Area per router is the mesh total divided by 9. Flops are for the whole mesh. Source: <code>m8_pipeline/results/synth*.csv</code>.</p>
+<table class="tight">
+<thead><tr><th>Configuration</th><th>Stages</th><th class="num">Area per router (&micro;m&sup2;)</th><th class="num">Mesh flops</th><th class="num">Critical path (ns)</th></tr></thead>
+<tbody>
+<tr><td>1 VC &times; 4 (M4's router)</td><td>1</td><td class="num">25,612</td><td class="num">5,372</td><td class="num">3.95</td></tr>
+<tr><td>1 VC &times; 4</td><td>2</td><td class="num">29,351</td><td class="num">6,655</td><td class="num">3.33</td></tr>
+<tr><td>1 VC &times; 8</td><td>1</td><td class="num">47,175</td><td class="num">10,400</td><td class="num">5.06</td></tr>
+<tr><td>1 VC &times; 8</td><td>2</td><td class="num">50,579</td><td class="num">11,683</td><td class="num">3.97</td></tr>
+<tr><td>4 VCs &times; 2, 1-pass</td><td>1</td><td class="num">52,165</td><td class="num">10,936</td><td class="num">6.16</td></tr>
+<tr><td>4 VCs &times; 2, 1-pass</td><td>2</td><td class="num">55,859</td><td class="num">12,283</td><td class="num">5.35</td></tr>
+<tr><td>4 VCs &times; 2, 2-pass</td><td>1</td><td class="num">54,481</td><td class="num">10,929</td><td class="num">8.66</td></tr>
+<tr><td>4 VCs &times; 2, 2-pass</td><td>2</td><td class="num">58,078</td><td class="num">12,282</td><td class="num">7.94</td></tr>
+<tr><td>4 VCs &times; 2, 2-pass, secure</td><td>2</td><td class="num">55,903</td><td class="num">11,740</td><td class="num">7.56</td></tr>
+<tr><td>3 VNs &times; 1 VC &times; 4, secure</td><td>1</td><td class="num">70,143</td><td class="num">15,436</td><td class="num">5.85</td></tr>
+<tr><td>3 VNs &times; 1 VC &times; 4, secure</td><td>2</td><td class="num">73,500</td><td class="num">16,728</td><td class="num">5.32</td></tr>
+<tr><td>3 VNs &times; 2 VCs &times; 2, 2-pass, secure (everything)</td><td>2</td><td class="num">82,047</td><td class="num">17,073</td><td class="num">10.09</td></tr>
+</tbody></table>
+<table class="tight">
+<caption>The same two configurations on M6's RTL and on M7's RTL (the timing-fix comparison of Section 5.8)</caption>
+<thead><tr><th>Configuration</th><th>RTL</th><th class="num">Area per router (&micro;m&sup2;)</th><th class="num">Mesh flops</th><th class="num">Critical path (ns)</th></tr></thead>
+<tbody>
+<tr><td>1 VC &times; 4</td><td>M6</td><td class="num">52,505</td><td class="num">11,194</td><td class="num">4.95</td></tr>
+<tr><td>1 VC &times; 4</td><td>M7</td><td class="num">25,693</td><td class="num">5,372</td><td class="num">4.13</td></tr>
+<tr><td>4 VCs &times; 2, 2-pass</td><td>M6</td><td class="num">98,964</td><td class="num">19,643</td><td class="num">10.10</td></tr>
+<tr><td>4 VCs &times; 2, 2-pass</td><td>M7</td><td class="num">54,575</td><td class="num">10,929</td><td class="num">8.79</td></tr>
+</tbody></table>
+
+<h2 id="b-m7">B.2&nbsp;&nbsp;M7's original single-router table (superseded for timing)</h2>
+<p>This is M7's own measurement, kept for the record. Each row synthesized <b>one router alone</b>, which cuts the cross-link path in half, so the critical paths understate the real ones and the fixes' gains are overstated (Section 5.8). The areas and the relative ordering are still informative. Do not use these critical paths to size a clock.</p>
+<table class="tight">
+<thead><tr><th>Configuration</th><th class="num">Flits per port</th><th class="num">Area (&micro;m&sup2;)</th><th class="num">Flops</th><th class="num">Single-router path (ns)</th></tr></thead>
+<tbody>
+<tr><td>1 VC &times; 4 (M4's router)</td><td class="num">4</td><td class="num">36,226</td><td class="num">805</td><td class="num">3.62</td></tr>
+<tr><td>1 VC &times; 8</td><td class="num">8</td><td class="num">65,335</td><td class="num">1,565</td><td class="num">3.93</td></tr>
+<tr><td>4 VCs &times; 2, 1-pass</td><td class="num">8</td><td class="num">72,563</td><td class="num">1,635</td><td class="num">6.11</td></tr>
+<tr><td>4 VCs &times; 2, 2-pass</td><td class="num">8</td><td class="num">75,336</td><td class="num">1,635</td><td class="num">8.15</td></tr>
+<tr><td>3 VNs &times; 1 VC &times; 4</td><td class="num">12</td><td class="num">100,655</td><td class="num">2,405</td><td class="num">5.63</td></tr>
+<tr><td>3 VNs &times; 1 VC &times; 4, secure</td><td class="num">12</td><td class="num">97,238</td><td class="num">2,339</td><td class="num">5.61</td></tr>
+<tr><td>4 VCs &times; 2, 2-pass, secure</td><td class="num">8</td><td class="num">74,001</td><td class="num">1,581</td><td class="num">8.53</td></tr>
+<tr><td>3 VNs &times; 2 VCs &times; 2, 2-pass, secure</td><td class="num">12</td><td class="num">108,470</td><td class="num">2,379</td><td class="num">9.79</td></tr>
+</tbody></table>

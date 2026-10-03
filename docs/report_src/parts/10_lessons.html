@@ -1,0 +1,51 @@
+<h1 id="lessons">Lessons, corrections and what went wrong</h1>
+<p>A project record that lists only successes is not trustworthy. This chapter collects the defects, wrong turns and corrections found along the way, how each was found, and what it changed. Several of them are the reason a later check exists.</p>
+
+<h2 id="l-table">Case file</h2>
+<table>
+<thead><tr><th style="width:8%">Where</th><th style="width:30%">What happened</th><th style="width:24%">How it was found</th><th>Outcome and lesson</th></tr></thead>
+<tbody>
+<tr><td>M1</td><td>Ordinary SystemVerilog constructs crashed or silently misbehaved in the simulator (loops over packed-struct fields, nested loop-indexed compares, an unpacked array of structs as an output port).</td><td>Simulation crashes a few clock edges in; an output reading <code>x</code> from outside the module.</td><td>Rewrote with generate loops and packed arrays. Rule adopted for the whole project: write the subset that every tool agrees on.</td></tr>
+<tr><td>M2</td><td>A 4-hop packet arrived in the cycle it was sent.</td><td>The mesh testbench's own timing check.</td><td>Not a bug but a consequence of M1's combinational design, and the direct motivation for M3.</td></tr>
+<tr><td>M3</td><td>Every check after the first was one flit out of phase.</td><td>Looked like a routing or ordering bug; traced to a polling loop that waited for a clock edge before checking, missing the cycle a cut-through router had already used.</td><td>Check first, then wait. A testbench needs a correct model of the design's timing, not just of its function.</td></tr>
+<tr><td>M4</td><td>Hotspot traffic produced scoreboard failures resembling data corruption.</td><td>Five steps: first a real tag-wraparound in the scoreboard, then, with that fixed, signal tracing that showed the testbench's own credit counter losing an update when a send and a credit return coincided.</td><td>The RTL was correct. A testbench that tracks protocol state needs the same care against races as the design. Fixed with a single synchronous update.</td></tr>
+<tr><td>M5</td><td>A draft mutant (<code>pass2_double_grant</code>) survived every test.</td><td>Mutation testing.</td><td>It was an <i>equivalent</i> mutant: another filter already blocked the case. Dropped. A survivor is either a verification gap or redundant logic.</td></tr>
+<tr><td>M5</td><td>The shared-buffer design passed every test at 2 and 4 outstanding transactions per tile.</td><td>The deadlock study swept load instead of spot-checking.</td><td>A light-load regression would ship a deadlocking design. The bug lives where the buffers fill.</td></tr>
+<tr><td>M6</td><td>A watchdog that fires too early would discard honest traffic.</td><td>Planted as the <code>hair_trigger</code> mutant.</td><td>Caught only because honest runs treat any alarm as a failure and a directed test stalls a tile for less than the limit. A defense with a false-positive bug is a self-inflicted denial of service.</td></tr>
+<tr><td>M6 study</td><td>In the watchdog study the quarantine happened during the warmup phase, before the measurement window opened.</td><td>Reading the study's first results.</td><td>The attacker was active from reset. Added a start-cycle control (<code>BH_START</code>) so the attack begins mid-run and detection is measured from a known cycle.</td></tr>
+<tr><td>M7</td><td>A register-cut equivalence proof of the new arbiter "failed".</td><td>The tool reported a mismatch.</td><td>It had considered pointer values that can never occur. Replaced with a sequential bounded proof that is complete for this state space. Choosing the proof matters.</td></tr>
+<tr><td>M7</td><td>The credit-protocol proof of network isolation failed on its first run.</td><td>The solver sent a request into the response VC over a west link.</td><td>The harness had not stated that neighboring routers keep network discipline. Adding the assumption on link ports only, and not the local port, made the proof state M6's trust model exactly.</td></tr>
+<tr><td>M7 to M8</td><td><b>M7's timing numbers were wrong by about 2&times;.</b> It synthesized one router and called its longest path the critical path.</td><td>M8 flattened the whole mesh and found the cross-link path that single-router synthesis cuts in half.</td><td>Correction note added at the top of M7's README; claimed gains revised from 23 to 34% down to 13 to 17%. The behavioral claims were unaffected. Measure the thing that determines the clock, not a convenient piece of it.</td></tr>
+<tr><td>M8</td><td>Directed test T6 failed in two-stage mode.</td><td>Inputs won 8 or 9 grants against a threshold of 9.</td><td>The test asserted a throughput count when the property it names is fairness. It now checks even shares and no starvation.</td></tr>
+<tr><td>Visualizer</td><td>The first converted replays were wrong: the uniform scenario alone had 731 handoff errors.</td><td>The replay checker rejected them, before any page was built.</td><td>Two decoder bugs: vector widths inferred from value strings that drop leading zeros, and a whole-buffer decode that one X slot (storage has no reset) turned to zero. The checker caught both, not inspection.</td></tr>
+<tr><td>Visualizer</td><td>The shared-buffer deadlock scenario, run on the hardened router, produced 106 watchdog false positives.</td><td>First run of the deadlock scenario with the watchdog on.</td><td>A deadlocked honest tile is indistinguishable from a black hole. The scenario runs with the watchdog off, and the limitation is documented in M6's README.</td></tr>
+<tr><td>M8 study</td><td>The transpose pattern on a 4&times;2 mesh failed.</td><td>Mesh edge assertions fired.</td><td>Transpose is undefined on a non-square mesh, since (x,y) to (y,x) leaves the grid. The testbench now refuses it with a clear message.</td></tr>
+<tr><td>Scripts</td><td><code>vvp</code> exits with status 0 even when a testbench prints FAIL.</td><td>A review of how M1 to M4 reported failures.</td><td>Every <code>run.sh</code> now requires the step's own pass line and exits non-zero otherwise, verified by planting a bug in a copy of M1.</td></tr>
+</tbody></table>
+
+<h2 id="l-tools">Tooling lessons</h2>
+<ul>
+<li><b>Windows line endings.</b> Python wrote carriage returns in text mode, which blinded shell substitutions in the mutation script. Source files were normalized, and Python now writes with explicit newline control.</li>
+<li><b>Paths with spaces.</b> SymbiYosys cannot take spaces in file lists, so the proof scripts use relative paths from each proof's directory. It also exits non-zero on an expected FAIL, which broke scripts running with <code>pipefail</code>; the verdict is now read from the last "DONE" line.</li>
+<li><b>Parallel synthesis.</b> Running eight Yosys jobs at once crashed from memory pressure. The script uses three or four in parallel with a retry.</li>
+<li><b>Result parsing.</b> A flop-count parser missed numbers in scientific notation until it was fixed.</li>
+<li><b>Bash heredocs and embedded Python.</b> Escaping broke inline scripts repeatedly; analysis code lives in files.</li>
+</ul>
+
+<h2 id="l-cross">Cross-cutting lessons</h2>
+<ol>
+<li><b>Verify the thing that decides the answer.</b> Timing from one router, throughput from light-load tests, security from a defense never shown to fail: each looked fine and each was wrong or empty.</li>
+<li><b>Make every refactor prove it changed nothing.</b> Equivalence against the previous milestone turned "I think it's the same" into 288 matching runs, and made later timing changes safe.</li>
+<li><b>Check the checkers.</b> Mutation testing found a redundant mutant, a false-positive hazard and invisible-to-stimulus bugs. Negative controls did the same for the proofs.</li>
+<li><b>Predict, then measure.</b> A model that says where each pattern must saturate turned one surprising result (uniform traffic) into a finding with a cause. Without the model it would have read as "about 75%".</li>
+<li><b>A testbench is a design.</b> It needs the same care about timing and races as the RTL. The two worst debugging episodes were testbench bugs.</li>
+<li><b>Correct the record where the claim lives.</b> M7's original document now opens with its correction.</li>
+</ol>
+
+<h2 id="l-differently">What would be done differently</h2>
+<ul>
+<li>Synthesize the whole mesh from the first synthesis milestone, and compare with the single-router number as a cross-check.</li>
+<li>Put the log-gating wrapper in every <code>run.sh</code> from M1, instead of adding it at the end.</li>
+<li>Build the replay checker before the replay page.</li>
+<li>Keep one shared testbench library for the credit-tracking and scoreboard code, instead of carrying copies forward and fixing a race in each.</li>
+</ul>

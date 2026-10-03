@@ -1,0 +1,50 @@
+<h1 id="reproduce">Reproducing the results</h1>
+<p>Every result in this report can be rerun. Commands are for Git Bash on Windows from the project root, and are also collected, with the expected output for each, in <code>GUIDE.md</code>. Run times are from the development laptop.</p>
+
+<h2 id="x-env">Environment</h2>
+<table class="tight">
+<thead><tr><th style="width:26%">Tool</th><th>Needed for</th><th style="width:34%">Where the scripts look</th></tr></thead>
+<tbody>
+<tr><td>Icarus Verilog 12 (<code>iverilog</code>, <code>vvp</code>)</td><td>Every simulation</td><td><code>PATH</code></td></tr>
+<tr><td>Python 3 (standard library)</td><td>Analysis scripts, the replay data pipeline</td><td><code>PATH</code> as <code>python</code></td></tr>
+<tr><td>Python with matplotlib</td><td>Plots only (<code>tools/plot_*.py</code>, this report's figures)</td><td>Any Python with matplotlib</td></tr>
+<tr><td>Verilator 5.x</td><td>Lint (M7, M8)</td><td><code>$VERILATOR</code>, default <code>/c/Verilator/verilator-5.032/bin/verilator.exe</code></td></tr>
+<tr><td>Yosys with slang, SymbiYosys</td><td>Synthesis and formal (M7, M8)</td><td><code>/c/oss-cad-suite/bin</code>, added to <code>PATH</code> by the scripts</td></tr>
+<tr><td>GTKWave (optional)</td><td>Viewing waveforms</td><td><code>PATH</code></td></tr>
+</tbody></table>
+<p>The sky130 liberty file is included in each synthesis milestone's <code>syn/</code> directory. Quick check of the basics: <code>iverilog -V | head -1 &amp;&amp; python --version</code>.</p>
+
+<h2 id="x-all">One command for everything</h2>
+<pre>./regress.sh            # every milestone's run.sh, plus the replay data check     (about 10 min)
+./regress.sh --full     # plus equivalence, attack matrices, mutation tests, formal,
+                        # whole-mesh synthesis, the 4x4 study, and the replays      (about 49 min)</pre>
+<p>The expected output is one PASS line per step, then <code>PROJECT REGRESSION PASSED</code>. A failing step prints FAIL with the path of its log under <code>regress_logs/</code> and the script exits with status 1. Each milestone's <code>run.sh</code> gates on its testbench's own pass line, so a crash, a hang or a wrong result cannot pass as success.</p>
+<div class="box"><div class="t">Try to break it</div>
+<p>Copy a milestone folder elsewhere, plant a bug, and run its <code>run.sh</code>. For example in <code>m1_single_router/rtl/router.sv</code>, route east-bound flits west (change <code>PORT_E</code> to <code>PORT_W</code> on the <code>dest_x &gt; X_ID</code> line). The expected result is <code>M1 REGRESSION FAILED: router directed tests</code> and exit status 1. Milestones M4 to M8 automate this kind of check with their mutation scripts.</p></div>
+
+<h2 id="x-each">Milestone by milestone</h2>
+<table>
+<thead><tr><th style="width:16%">Milestone</th><th style="width:44%">Commands</th><th>Expected</th></tr></thead>
+<tbody>
+<tr><td>M1 to M3</td><td><code>bash m1_single_router/run.sh</code><br><code>bash m2_mesh/run.sh</code><br><code>bash m3_flow_control/run.sh</code></td><td>13 / 13, 11 / 11, FIFO unit test and 23 / 23. In the M3 waveform, find a test where an output's credits reach 0: its <code>out_valid</code> stays low until a <code>credit_return</code> pulse arrives.</td></tr>
+<tr><td>M4</td><td><code>bash m4_verification/run.sh</code><br><code>bash m4_verification/tools/sweep.sh</code> (80 points, ~45 s)<br><code>python m4_verification/tools/theory_check.py</code></td><td>Uniform saturation 0.72 to 0.75 of a 1.00 bound; the other three patterns inside their model brackets.</td></tr>
+<tr><td>M5</td><td><code>bash m5_virtual_networks/run.sh</code><br><code>bash m5_virtual_networks/tools/deadlock_demo.sh</code> (~5 min)</td><td>Shared buffers deadlock at 8 or more outstanding transactions per tile, three shared VCs at 32 or more, one VN per class never. The printout names the message each stuck tile is waiting on.</td></tr>
+<tr><td>M6</td><td><code>bash m6_security/run.sh</code><br><code>bash m6_security/tools/attack_matrix.sh</code> (~6 min)</td><td>Each attack reports <code>COMPROMISED</code> against <code>SECURE=0</code> and is contained with <code>SECURE=1</code>; the flood control harms neither.</td></tr>
+<tr><td>M7</td><td><code>bash m7_synthesis/run.sh</code><br><code>bash m7_synthesis/tools/formal.sh</code> (~4 min)</td><td>Every proof <code>PASS (expected)</code>; every planted bug <code>FAIL (expected)</code>.</td></tr>
+<tr><td>M8</td><td><code>bash m8_pipeline/run.sh</code> (15 steps, both modes)<br><code>bash m8_pipeline/tools/synth.sh</code> (~3 min)<br><code>bash m8_pipeline/tools/mesh_scaling.sh</code> (~6 min)</td><td>Critical paths for the two-stage routers: 3.33 ns (1 VC &times; 4) and 7.94 ns (4 VCs &times; 2, two-pass). The 4&times;4 study ends <code>4x4 PASSED</code>.</td></tr>
+<tr><td>Visualizer</td><td>Open <code>visualizer/noc_replay.html</code><br><code>bash visualizer/tools/make_scenarios.sh</code> (~1 min)</td><td>Three tabs, playable and clickable. The script refuses to bundle data that fails the replay checker.</td></tr>
+</tbody></table>
+
+<h2 id="x-more">Things worth trying</h2>
+<ul>
+<li>Change <code>WD_LIMIT</code> (<code>-DSWEEP_WD_LIMIT=64</code>) and rerun the black hole: quarantine arrives sooner and victim tail latency falls, as in the Chapter 5 table.</li>
+<li>Run the protocol testbench with <code>+OUTSTANDING=64</code> on the 3-VN mesh at several seeds: it should never deadlock.</li>
+<li>Change the mesh size: <code>-DSWEEP_MESH_W=4 -DSWEEP_MESH_H=2</code> passes uniform, bit-complement and hotspot. Transpose is refused on non-square meshes.</li>
+<li>Open any <code>sim/*.vcd</code> in GTKWave and watch <code>alarm</code>, <code>quarantine</code>, <code>send1</code> (the stage-1 grant) and the FIFO <code>count</code> signals in each router.</li>
+</ul>
+
+<h2 id="x-report">Rebuilding this report</h2>
+<pre>cd docs/report_src
+python make_figures.py      # charts, from the result CSVs (needs matplotlib)
+python build.py             # assembles parts/*.html and prints docs/NoC_Router_Project_Report.pdf
+                            # (needs Chrome and PyMuPDF; fills in page numbers and bookmarks)</pre>

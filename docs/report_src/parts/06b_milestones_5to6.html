@@ -1,0 +1,237 @@
+<h2 id="m5">M5: virtual channels and virtual networks</h2>
+<h3>Objective</h3>
+<p>M4 found that uniform traffic saturates at 75% of what the wiring allows, and that deeper buffers barely help. M5 removes head-of-line blocking with virtual channels, then uses the same mechanism to remove a second, nastier problem that M4's traffic could not show: protocol deadlock.</p>
+
+<h3>Design</h3>
+<ul>
+<li><b>Virtual channels.</b> Each input port has <code>NUM_VNS &times; VCS_PER_VN</code> independent FIFOs, numbered <code>vc = vn &times; VCS_PER_VN + k</code>. A <code>vc</code> field travels with every flit and picks the FIFO at the far end. Credits are counted per VC, with one counter per output VC and one credit wire per VC.</li>
+<li><b>Eligibility.</b> A head flit is eligible if its output port has a free slot in at least one VC of the flit's own virtual network.</li>
+<li><b>Switch allocation</b> is separable and input-first: each input picks one eligible VC (round-robin), then each output picks one requesting input (round-robin). With <code>SA_ITERS=2</code> a second pass repeats both stages for the inputs and outputs the first pass left unmatched. Pass 2 scans in the same order but <b>never moves a round-robin pointer</b>; only pass-1 wins rotate them (the rule from iSLIP, McKeown 1999), so pass 1's fairness bounds still hold.</li>
+<li><b>VC allocation</b> comes after switch allocation, which is legal because packets are single flits and eligibility already guaranteed a free VC. The output VC is chosen round-robin among the VCs of the flit's network that have credit.</li>
+<li><b>Virtual networks.</b> A flit never leaves its network. The class field in the flit (<code>noc_pkg.sv</code> adds message class and sender coordinates here) decides which VN it lives in.</li>
+<li>Everything still happens in one cycle per hop. A new input to the second round-robin arbiter, <code>req_b</code>, shares the priority pointer without moving it, which is how pass 2 is built.</li>
+</ul>
+<p>Configured as 1 VN &times; 1 VC, the new router is behaviorally identical to M4's. The equivalence check proves it (below).</p>
+
+<h3>Results: virtual channels</h3>
+<p>The full study is uniform random traffic, 12 router configurations and 20 offered loads each: 240 runs, all passing every correctness check.</p>
+<figure>
+<img src="fig/m5_vc_study.png" alt="Latency and accepted throughput for four router configurations under uniform traffic">
+<figcaption><b>Figure 5.2.</b> M5's VC study (uniform traffic). Left: latency against offered load. M4's router leaves the chart near 0.73, a single 8-flit FIFO and 4 VCs with a one-pass allocator near 0.8, and 4 VCs with a two-pass allocator near 0.9. Right: accepted throughput flattens at 0.74, 0.80, 0.82 and 0.90.</figcaption>
+</figure>
+<table>
+<thead><tr><th style="width:30%">Configuration</th><th class="num">Flits per input</th><th class="num">Peak, 1-pass</th><th class="num">Peak, 2-pass</th><th class="num">Knee, 1-pass</th><th class="num">Knee, 2-pass</th></tr></thead>
+<tbody>
+<tr><td>1 VC &times; 4 flits (M4's router)</td><td class="num">4</td><td class="num">0.756</td><td class="num">0.756</td><td class="num">0.70</td><td class="num">0.70</td></tr>
+<tr><td>2 VCs &times; 2 flits</td><td class="num">4</td><td class="num">0.772</td><td class="num">0.822</td><td class="num">0.70</td><td class="num">0.75</td></tr>
+<tr><td>1 VC &times; 8 flits</td><td class="num">8</td><td class="num">0.811</td><td class="num">0.811</td><td class="num">0.70</td><td class="num">0.70</td></tr>
+<tr><td>2 VCs &times; 4 flits</td><td class="num">8</td><td class="num">0.820</td><td class="num">0.872</td><td class="num">0.70</td><td class="num">0.80</td></tr>
+<tr class="hl"><td>4 VCs &times; 2 flits</td><td class="num">8</td><td class="num">0.824</td><td class="num"><b>0.905</b></td><td class="num">0.75</td><td class="num"><b>0.85</b></td></tr>
+<tr><td>4 VCs &times; 4 flits</td><td class="num">16</td><td class="num">0.840</td><td class="num">0.926</td><td class="num">0.75</td><td class="num">0.85</td></tr>
+</tbody></table>
+<p class="small">Peak is the highest accepted throughput in flits per node per cycle. The knee is the highest offered load whose average latency stays within three times the zero-load latency.</p>
+<div class="box"><div class="t">Finding: two changes, each useless alone</div>
+<p><b>Virtual channels alone barely help.</b> At 8 flits per input, four VCs (0.824) beat one deep FIFO (0.811) by under 2%. A single-pass allocator makes each input nominate one VC without knowing what the others want. If the nominee loses at the output, the input sends nothing that cycle, even if another of its VCs wanted an output nobody won. The VCs create choices and a one-shot allocator throws most of them away.</p>
+<p><b>A second pass alone does nothing.</b> With one VC the one-pass and two-pass results are bit-identical, because an input with one FIFO has nothing else to offer when its head flit loses.</p>
+<p><b>Together</b>, at equal storage (8 flits per input) four VCs with two passes accept 0.905 against 0.811 for one deep FIFO (<b>+12%</b>) and against 0.756 for M4's router (<b>+20%</b>). The knee moves from 0.70 to 0.85.</p></div>
+<p><b>The patterns that were never the router's fault did not move.</b> M4's model said transpose, bit-complement and hotspot are limited by the wiring. The best configuration against M4's router confirms it:</p>
+<table class="tight">
+<thead><tr><th>Pattern</th><th>What limits it</th><th class="num">Knee, M4 to M5</th><th class="num">Peak accepted, M4 to M5</th></tr></thead>
+<tbody>
+<tr><td>Uniform random</td><td>The router (bound 1.00)</td><td class="num">0.70 &rarr; <b>0.85</b></td><td class="num">0.756 &rarr; <b>0.905</b></td></tr>
+<tr><td>Transpose</td><td>Two corner channels (bound 0.44)</td><td class="num">0.40 &rarr; 0.40</td><td class="num">0.591 &rarr; 0.631</td></tr>
+<tr><td>Bit-complement</td><td>Center router's E and W outputs (0.73)</td><td class="num">0.70 &rarr; 0.70</td><td class="num">0.847 &rarr; 0.847</td></tr>
+<tr><td>Hotspot</td><td>Tile (0,0)'s ejection port (0.36)</td><td class="num">0.35 &rarr; 0.35</td><td class="num">0.428 &rarr; 0.431</td></tr>
+</tbody></table>
+<p>A better router cannot beat the wiring. It can only stop wasting it, and the improvement lands exactly where M4's model said the waste was.</p>
+<p><b>What it costs.</b> With several VCs per network a later packet can take a less crowded VC and overtake an earlier one, so point-to-point ordering is no longer guaranteed: at the best configuration 0% of packets reorder at 0.5 offered load, 2.2% at 0.8 and 9.6% at 0.9. A protocol class needing order would get a single VC in its network. The allocator also does more work per cycle, and how much that stretches the clock is a synthesis question, answered in M7.</p>
+
+<h3>Results: protocol deadlock</h3>
+<p>The protocol testbench gives every tile the three roles of a coherence agent (Section 3.6). Each requester may have up to <i>OUTSTANDING</i> transactions in flight, and every message is checked on arrival: right destination, right network for its class, true source coordinates, and it is the message its transaction is actually waiting for.</p>
+<p>With all three classes sharing buffers, the testbench reports the deadlock and where every stuck message is. In the run with 16 outstanding transactions, 40 REQs, 29 SNPs and 24 RSPs sit in router buffers, and every tile with a message at the head of its receive queue is waiting on an out-queue that is full. The most telling number is the <b>24 RSPs</b>: each would complete a transaction the instant it arrived, since requesters always accept them, and none can move because they share FIFOs with REQs and SNPs waiting on each other.</p>
+<figure class="narrow">
+<img src="fig/deadlock.png" alt="Fraction of runs that deadlock against outstanding transactions for three buffer configurations">
+<figcaption><b>Figure 5.3.</b> Deadlock against load, 8 seeded runs per point. A shared single VC deadlocks from 8 outstanding transactions. Three shared VCs (three times the buffers) only move the cliff to 32. Three virtual networks with one VC each never deadlock.</figcaption>
+</figure>
+<table class="tight">
+<thead><tr><th>Outstanding per tile</th><th>1 VN &times; 1 VC (shared)</th><th>1 VN &times; 3 VCs (shared)</th><th>3 VNs &times; 1 VC (per class)</th></tr></thead>
+<tbody>
+<tr><td>2 and 4</td><td>0/8</td><td>0/8</td><td>0/8</td></tr>
+<tr><td>8</td><td class="fail">5/8</td><td>0/8</td><td>0/8</td></tr>
+<tr><td>16</td><td class="fail">8/8</td><td>0/8</td><td>0/8</td></tr>
+<tr><td>32 and 64</td><td class="fail">8/8</td><td class="fail">8/8</td><td>0/8</td></tr>
+</tbody></table>
+<p>The middle and right columns hold <b>exactly the same number of buffers</b>. Sharing three VCs among all classes only raises the load needed to deadlock; splitting the same three buffers by class removes the deadlock completely.</p>
+<p><b>Why virtual networks cannot deadlock.</b> The argument runs from the end of the chain backward: RSPs always drain, because requesters always accept them and the RSP network only holds RSPs, and XY routing cannot deadlock within one network. So SNPs always drain, because an owner only waits for RSP queue space, which is guaranteed to come. So REQs always drain, because a home only waits for SNP queue space.</p>
+<div class="box warn"><div class="t">A lesson for verification</div>
+<p>At 2 or 4 outstanding transactions the shared design passes every test. A regression that only runs light traffic would ship it. The bug exists only where the load is high enough to fill the buffers, which is why the study sweeps load and does not spot-check.</p></div>
+
+<h3>Verification</h3>
+<p><b>Equivalence with M4</b> is the strongest single check. The M5 router configured as M4's (1 VN &times; 1 VC &times; 4 flits, 1-pass) is driven with M4's exact stimulus, and all 80 sweep points match digit for digit: every latency average, percentile and throughput figure. The refactor changed no timing and no arbitration decision anywhere. A 3-VN router with traffic in only one network also matches, so idle networks do not perturb the active one.</p>
+<table class="tight">
+<caption>Directed tests of the VC router (17 checks pass)</caption>
+<thead><tr><th style="width:8%">Test</th><th>Checks</th></tr></thead>
+<tbody>
+<tr><td>T1</td><td>Routing to all five ports; each class leaves on its own network's VC; every credit returns on the right VC wire</td></tr>
+<tr><td>T2</td><td>Head-of-line blocking: a 1-VC router strands a flit behind a blocked one; a 2-VC router, same stimulus, sends it around</td></tr>
+<tr><td>T3</td><td>Network isolation: with East's REQ VC jammed, an RSP to East from the same input still goes straight through</td></tr>
+<tr><td>T4</td><td>Output-VC choice: round-robin within the network, a stalled VC is skipped, a VC of another network is never used</td></tr>
+<tr><td>T5</td><td>Two-pass allocation: an input that loses pass 1 sends on another VC in the same cycle (one pass: two cycles later)</td></tr>
+<tr><td>T6</td><td>Fairness: four inputs streaming to one output receive near-equal grants</td></tr>
+<tr><td>T7</td><td>The network-isolation checker fires on a flit deliberately injected into the wrong network</td></tr>
+</tbody></table>
+<table class="tight">
+<caption>Invariants checked every cycle in every router (each increments a global violation counter)</caption>
+<thead><tr><th>Invariant</th><th style="width:16%">Location</th></tr></thead>
+<tbody>
+<tr><td>FIFO occupancy never exceeds capacity</td><td>flit_fifo</td></tr>
+<tr><td>No push into a full buffer (a sender without credit)</td><td>flit_fifo</td></tr>
+<tr><td>Credit count never exceeds buffer depth, per output VC</td><td>vc_router</td></tr>
+<tr><td>A flit enters only a VC of its own class's network</td><td>vc_router</td></tr>
+<tr><td>A flit names a VC that exists</td><td>vc_router</td></tr>
+<tr><td>Every sending output was given an output VC</td><td>vc_router</td></tr>
+<tr><td>An output takes at most one input; an input feeds at most one output</td><td>vc_router</td></tr>
+<tr><td>Output-stage fairness: a continuous requester waits at most NUM_PORTS&minus;1 grants</td><td>vc_router</td></tr>
+<tr><td>Input-stage fairness: an eligible VC sees at most NUM_VCS&minus;1 pass-1 wins by its siblings</td><td>vc_router</td></tr>
+<tr><td>No flit ever leaves through an edge port (that would be a misroute)</td><td>vc_mesh</td></tr>
+</tbody></table>
+<p>Both fairness bounds are exact consequences of the round-robin pointer rules, so they are tight checks and not generous timeouts. They hold with the two-pass allocator too, because pass 2 never moves a pointer.</p>
+<table class="tight">
+<caption>Mutation test: seven planted bugs, all caught</caption>
+<thead><tr><th style="width:21%">Mutant</th><th style="width:30%">Bug</th><th>Caught by</th></tr></thead>
+<tbody>
+<tr><td><code>credit_overflow</code></td><td>Credit counters reset one above capacity</td><td>Credit-bound invariant, all testbenches</td></tr>
+<tr><td><code>fixed_priority</code></td><td>Round-robin pointers never advance</td><td>Both fairness invariants; test T4</td></tr>
+<tr><td><code>route_east_west</code></td><td>East-bound flits routed west</td><td>Edge-misroute invariant; test T1</td></tr>
+<tr><td><code>vn_escape</code></td><td>Output-VC allocation ignores the network</td><td>Network-isolation invariant (protocol run); test T3. The sweep cannot see it: its traffic is one class.</td></tr>
+<tr><td><code>credit_wrong_vc</code></td><td>A pop returns its credit on the neighboring VC's wire</td><td>Credit-bound invariant; test T4</td></tr>
+<tr><td><code>pass2_reuse_input</code></td><td>Pass 2 lets an input that already won win again</td><td>Crossbar-input invariant: one input feeding two outputs</td></tr>
+<tr><td><code>pass2_reuse_output</code></td><td>Pass 2 may grant an output pass 1 already gave away</td><td>Crossbar-output invariant: two inputs on one output</td></tr>
+</tbody></table>
+<p>Two points are general. <code>vn_escape</code> is invisible to single-class traffic: a bug is only found if the stimulus can reach the logic that has it. And the two pass-2 mutants would otherwise surface as lost or duplicated flits somewhere downstream, eventually; the crossbar invariants name the exact router and cycle instead. One draft mutant, <code>pass2_double_grant</code>, was dropped after it turned out to be <i>equivalent</i>: another filter already blocked the case, so the bug could never occur. A surviving mutant is either a verification gap or logic that was redundant, and this one was redundant.</p>
+
+<h2 id="m6">M6: fabric security</h2>
+<h3>Objective</h3>
+<p>Show what a single compromised tile can do to a shared fabric, demonstrate each attack succeeding against M5's router, then stop it with the smallest possible hardware at the one place it can be stopped.</p>
+
+<h3>Threat model</h3>
+<ul>
+<li><b>The attacker</b> controls one tile (a compromised accelerator, malicious firmware, a buggy agent). It can inject any flit with any header fields on any VC as fast as its credits allow, and it can refuse to consume what is sent to it.</li>
+<li><b>Trusted:</b> the routers, the links between them, and the other tiles.</li>
+<li><b>Goals.</b> Authenticity: a tile cannot claim to be another tile. Isolation: a tile cannot break the guarantees the network gives everyone else (M5's deadlock freedom). Availability: one tile cannot freeze traffic between other tiles.</li>
+<li><b>Out of scope.</b> Physical attacks or a malicious router; a tile refusing to <i>serve</i> requests (a protocol-level problem needing timeouts); volumetric flooding (rate limiting); confidentiality and timing side channels.</li>
+</ul>
+
+<h3>The trust boundary</h3>
+<p>Every defense sits at each router's <b>local port</b>, where a tile meets the network. Links between routers stay trusted. That split changes what an assertion means: on a link, a flit in the wrong network can only come from a broken router upstream, so it is an RTL bug and an assertion; at the local port the same flit is an attack, so the router refuses it and raises an alarm. All of it is behind one parameter, <code>SECURE</code>; <code>SECURE=0</code> builds M5's behavior, the vulnerable baseline every attack is shown against.</p>
+<figure>
+<svg viewBox="0 0 560 220" role="img" aria-label="The trust boundary at the router's local port">
+  <defs>
+    <marker id="s1" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L8,4 L0,8z" fill="#8892a0"/></marker>
+    <marker id="s1o" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L8,4 L0,8z" fill="#d2622e"/></marker>
+  </defs>
+  <rect class="bx-g" x="8" y="10" width="368" height="200" rx="8"/><text x="22" y="30" class="t-b">Trusted: router (x,y) and its links to neighbors</text>
+  <rect class="bx-bad" x="440" y="10" width="112" height="200" rx="8"/><text x="496" y="30" text-anchor="middle" class="t-b">Untrusted tile</text>
+  <rect class="bx-w" x="22" y="48" width="130" height="62" rx="5"/><text x="87" y="70" text-anchor="middle" class="t-m">N, S, E, W links</text><text x="87" y="86" text-anchor="middle" class="t-s t-mute">VC buffers, allocator,</text><text x="87" y="98" text-anchor="middle" class="t-s t-mute">crossbar</text>
+  <rect class="bx-y" x="196" y="44" width="170" height="74" rx="5"/><text x="281" y="62" text-anchor="middle" class="t-b">Ingress (tile to router)</text>
+  <text x="281" y="80" text-anchor="middle" class="t-s">1. stamp the true source</text><text x="281" y="92" text-anchor="middle" class="t-s">2. refuse a flit outside its class's</text><text x="281" y="104" text-anchor="middle" class="t-s">network; keep its credit</text>
+  <rect class="bx-y" x="196" y="134" width="170" height="64" rx="5"/><text x="281" y="152" text-anchor="middle" class="t-b">Ejection (router to tile)</text>
+  <text x="281" y="170" text-anchor="middle" class="t-s">3. watchdog: tile returns no credit</text><text x="281" y="182" text-anchor="middle" class="t-s">for 256 cycles, quarantine it</text>
+  <rect class="bx-w" x="452" y="52" width="88" height="140" rx="5"/><text x="496" y="74" text-anchor="middle" class="t-s">may forge source,</text><text x="496" y="87" text-anchor="middle" class="t-s">use any VC...</text><text x="496" y="142" text-anchor="middle" class="t-s">...or stop</text><text x="496" y="155" text-anchor="middle" class="t-s">consuming</text>
+  <g class="ln"><path d="M152 79H194" marker-end="url(#s1)"/><path d="M194 160H152V112" marker-end="url(#s1)" /></g>
+  <path d="M452 80H368" class="ln-o" marker-end="url(#s1o)"/><path d="M368 166H450" class="ln-o" marker-end="url(#s1o)"/>
+  <path d="M396 12V208" class="dash-box" style="stroke-width:1.5"/><text x="408" y="124" class="t-s t-warn" transform="rotate(90 408 124)" text-anchor="middle">trust boundary</text>
+</svg>
+<figcaption><b>Figure 5.4.</b> The three defenses, all at one port. They add no hardware to the router-to-router links, and (Section 5.7) cost no area overall.</figcaption>
+</figure>
+
+<h3>Attack 1: source spoofing</h3>
+<p><b>Setup.</b> Homes enforce an access-control list: a <i>protected</i> transaction may only be served for a <i>trusted</i> tile (the top row), and the home reads the requester's identity from the flit's source field.</p>
+<p><b>Attack.</b> The attacker at tile (2,2) sends protected requests with the source field set to (0,0), a trusted tile. Against M5's router every forged request is served, and the impersonated tile is hit with responses it never asked for. This is the on-chip version of a reflection attack: the attacker cannot read the data, but it can make the system act for it and dump the results on someone else.</p>
+<p><b>Defense.</b> The router overwrites the source field with its own coordinates on every flit entering from the tile. A tile may claim anything; the network reports where the flit really came from. This is ingress filtering in the manner of BCP 38, done in hardware at the only place it can be, and it is the principle behind hardware-assigned initiator identities in real SoC fabrics.</p>
+<table class="tight">
+<caption>Spoofing: 8 seeds per row, 5,000 cycles each, 8 outstanding transactions per honest tile</caption>
+<thead><tr><th>Router</th><th class="num">Runs breached</th><th class="num">Forged requests served</th><th class="num">Denied</th><th class="num">Unsolicited responses at (0,0)</th><th class="num">Honest completed</th></tr></thead>
+<tbody>
+<tr><td>M5 behavior (<code>SECURE=0</code>)</td><td class="num fail">8/8</td><td class="num">22,685</td><td class="num">0</td><td class="num">22,664</td><td class="num">100%</td></tr>
+<tr><td>M6 (<code>SECURE=1</code>)</td><td class="num pass">0/8</td><td class="num">0</td><td class="num">26,391</td><td class="num">0</td><td class="num">100%</td></tr>
+</tbody></table>
+<p>Honest traffic is unaffected either way, which is exactly what makes spoofing dangerous: nothing looks wrong until someone audits the access log.</p>
+
+<h3>Attack 2: virtual-network hopping</h3>
+<p>M5's deadlock argument assumes the response network holds only responses. <b>The attack:</b> a greedy tile notices the response network is less congested and puts its <i>requests</i> there. A REQ can now sit at the head of a home's RSP buffer, waiting for room to queue a SNP, and every RSP behind it waits too. The first step of M5's argument is gone and the cyclic wait from the shared-buffer case returns. Against M5's router this deadlocks the whole fabric in every run, at a load where the networks never deadlocked before. One misbehaving tile takes the guarantee away from everyone.</p>
+<p><b>Defense.</b> At the local port a flit is accepted only into a VC of its own class's network. Otherwise it is refused and an alarm pulses. The credit the tile spent on it is <b>not returned</b>, so a rule-breaking tile quickly runs out of credits on the VC it abused. It starves only itself.</p>
+<table class="tight">
+<thead><tr><th>Router</th><th class="num">Runs deadlocked</th><th class="num">Attacker flits refused</th><th class="num">Honest completed</th></tr></thead>
+<tbody>
+<tr><td>M5 behavior</td><td class="num fail">8/8</td><td class="num">0</td><td class="num">91.4%, then nothing moves</td></tr>
+<tr><td>M6</td><td class="num pass">0/8</td><td class="num">32 (4 per run: its credits ran out)</td><td class="num">100%</td></tr>
+</tbody></table>
+
+<h3>Attack 3: black hole</h3>
+<p><b>The attack.</b> The attacking tile simply stops consuming what is delivered to it. Its ejection credits never return, so flits addressed to it wait in its router's buffers; the flits behind them, addressed to anyone, wait too because of head-of-line blocking; and the routers feeding those buffers back up the same way. The backpressure spreads (tree saturation) until traffic between tiles that have nothing to do with the attacker is frozen. A corner tile does it as thoroughly as the center.</p>
+<p><b>Defense.</b> Per virtual network, the local ejection port runs a watchdog. It counts consecutive cycles in which a flit is waiting for the tile and the tile has returned no credit. After <code>WD_LIMIT</code> cycles it <b>quarantines</b> that network: its flits still win the switch but are discarded instead of sent, which drains the router's buffers and unwinds the backpressure. The moment the tile returns any credit, quarantine lifts. A slow but live tile never trips it, because any credit resets the count, and the discarded flits were addressed to the tile that refused them.</p>
+<table>
+<caption>Black hole under uniform traffic, attacker active from the start. "Victims" are packets for other tiles.</caption>
+<thead><tr><th>Attacker</th><th class="num">Load</th><th>Router</th><th class="num">Victims accepted / offered</th><th class="num">Victim packets lost</th><th class="num">Stuck at end</th><th class="num">Quarantined at cycle</th></tr></thead>
+<tbody>
+<tr><td>center (1,1)</td><td class="num">0.20</td><td>M5 behavior</td><td class="num">0.022 / 0.178</td><td class="num fail">2,802</td><td class="num">128</td><td class="num">never</td></tr>
+<tr><td>center (1,1)</td><td class="num">0.40</td><td>M5 behavior</td><td class="num">0.045 / 0.361</td><td class="num fail">5,684</td><td class="num">128</td><td class="num">never</td></tr>
+<tr><td>corner (2,2)</td><td class="num">0.20</td><td>M5 behavior</td><td class="num">0.022 / 0.177</td><td class="num fail">2,776</td><td class="num">128</td><td class="num">never</td></tr>
+<tr><td>corner (2,2)</td><td class="num">0.40</td><td>M5 behavior</td><td class="num">0.044 / 0.360</td><td class="num fail">5,687</td><td class="num">128</td><td class="num">never</td></tr>
+<tr><td>center (1,1)</td><td class="num">0.20</td><td>M6</td><td class="num">0.178 / 0.178</td><td class="num pass">0</td><td class="num">0</td><td class="num">311</td></tr>
+<tr><td>center (1,1)</td><td class="num">0.40</td><td>M6</td><td class="num">0.361 / 0.361</td><td class="num pass">0</td><td class="num">0</td><td class="num">278</td></tr>
+<tr><td>corner (2,2)</td><td class="num">0.20</td><td>M6</td><td class="num">0.177 / 0.177</td><td class="num pass">0</td><td class="num">0</td><td class="num">325</td></tr>
+<tr><td>corner (2,2)</td><td class="num">0.40</td><td>M6</td><td class="num">0.360 / 0.360</td><td class="num pass">0</td><td class="num">0</td><td class="num">286</td></tr>
+</tbody></table>
+<p>The unprotected network always ends with the same 128 stuck flits: once enough buffers fill with traffic waiting on the black hole, the frozen state does not depend on which tile or load started it.</p>
+
+<h3>Choosing the watchdog limit</h3>
+<p>The limit trades <b>false alarms</b> (quarantining an honest tile that is only legitimately stalled) against the <b>damage window</b> (how long a black hole gets to back traffic up). Honest tiles do stall: a coherence home cannot accept a request until it has room for the snoop it owes. Both sides were measured.</p>
+<figure>
+<img src="fig/watchdog.png" alt="Left: longest honest stall per load. Middle and right: detection delay and victim p99 latency against the watchdog limit">
+<figcaption><b>Figure 5.5.</b> Left: the longest honest ejection stall over 48 protocol runs, by load (it never exceeds 75 cycles). Middle: the delay before a black hole is detected, by limit. Right: victim p99 latency while it is undetected. Damage grows faster than the limit.</figcaption>
+</figure>
+<table class="tight">
+<caption>Center tile turns black hole at cycle 1000 under uniform traffic at 0.30 load. With no attack, victim latency is 3.3 average and 6 at p99.</caption>
+<thead><tr><th>Watchdog</th><th class="num">Detected after (cycles)</th><th class="num">Victim latency avg / p99</th><th class="num">Victim packets lost</th></tr></thead>
+<tbody>
+<tr><td>none (M5's router)</td><td class="num">never</td><td class="num">n/a</td><td class="num fail">3,986</td></tr>
+<tr><td>WD_LIMIT 32</td><td class="num">53</td><td class="num">3.3 / 7</td><td class="num">0</td></tr>
+<tr><td>WD_LIMIT 64</td><td class="num">85</td><td class="num">3.4 / 7</td><td class="num">0</td></tr>
+<tr><td>WD_LIMIT 128</td><td class="num">149</td><td class="num">4.6 / 50</td><td class="num">0</td></tr>
+<tr class="hl"><td>WD_LIMIT 256 (default)</td><td class="num">277</td><td class="num">14.9 / 179</td><td class="num">0</td></tr>
+<tr><td>WD_LIMIT 512</td><td class="num">533</td><td class="num">66.1 / 436</td><td class="num">0</td></tr>
+<tr><td>WD_LIMIT 1024</td><td class="num">1,045</td><td class="num">295.9 / 946</td><td class="num">0</td></tr>
+</tbody></table>
+<p>The default is 256: 3.4 times the longest honest stall ever measured, at a load (64 outstanding per requester) far beyond typical miss-handling resources, detecting four times faster than the first choice of 1,024 with five times less tail damage. A design that knows its endpoints better could go to 128, which still has 1.7 times margin.</p>
+<div class="box warn"><div class="t">Known limitation</div>
+<p>The watchdog sees one symptom: delivered flits waiting at a tile that returns no credit. A tile that is <i>deadlocked</i> shows exactly that symptom while being honest. If the watchdog runs on the shared-buffer configuration, which deadlocks, it quarantines honest tiles (106 false-positive errors in the reproduced run), the discards free some buffers so traffic limps on, and the network deadlocks again at cycle 3,535 anyway. The watchdog turns deadlock into message loss; it does not cure it. <b>The watchdog assumes a deadlock-free protocol.</b> With one network per message class there is none, and every honest run shows zero alarms. Deadlock freedom has to come from the virtual networks.</p></div>
+
+<h3>The control: flooding, and what stays invisible</h3>
+<p>The same attacker floods requests <i>in the correct network</i>. Honest traffic slows but completes in every run on both routers. The control shows that the hopping deadlock comes from the network violation and not from the extra load. It also marks the edge of M6: volumetric flooding needs per-tile rate limiting, which is future work.</p>
+<p>Security logic that changes how honest packets move is a performance bug, so with no attacker M6 must behave exactly like M5:</p>
+<table class="tight">
+<thead><tr><th>Check</th><th class="num">Runs</th><th>Result</th></tr></thead>
+<tbody>
+<tr><td>M4's whole sweep, <code>SECURE=1</code> and <code>SECURE=0</code></td><td class="num">2 &times; 80</td><td>Identical to M4, digit for digit</td></tr>
+<tr><td>M5's best VC configuration, 4 patterns</td><td class="num">80</td><td>Identical to M5, every column</td></tr>
+<tr><td>M5's protocol runs, one network per class (6 loads &times; 8 seeds)</td><td class="num">48</td><td>Identical to M5; zero alarms</td></tr>
+</tbody></table>
+<p>Every one of these runs also fails on any security alarm, so "no false positives" is checked and not assumed.</p>
+
+<h3>Verification</h3>
+<p>The directed suite grows to 28 of 28 checks. New tests include: a wrong-network flit on a router-to-router <i>link</i> still fires the assertion, because links are trusted (T7); a local flit claiming (2,2) leaves stamped (1,1) while a transit flit keeps its source (T8); a local REQ in the RSP VC is refused, one alarm, no assertion, credit kept, while the same REQ in the REQ VC passes (T9); a watchdog with limit 16 tolerates a 12-cycle stall, then quarantines past 16 and discards exactly the two waiting flits, leaves the other network alone, and recovers when the tile resumes (T10); and the same tricks on an unprotected router pass silently, the vulnerability shown directly (T11).</p>
+<p>The <b>attack matrix</b> runs every attack against both routers, 8 seeds for the protocol attacks and 2 tiles by 2 loads for the black hole, and passing requires both directions. The <b>mutation test</b> adds four security mutants to M5's seven; all 11 are caught.</p>
+<table class="tight">
+<thead><tr><th style="width:18%">Security mutant</th><th style="width:27%">Bug</th><th>Caught by</th></tr></thead>
+<tbody>
+<tr><td><code>no_stamp</code></td><td>Source stamping removed</td><td>Spoofing run: breaches above zero; test T8</td></tr>
+<tr><td><code>no_vn_guard</code></td><td>Ingress network check removed</td><td>Hopping run: wrong-network flits reach the links and fire the link assertion; test T9</td></tr>
+<tr><td><code>no_watchdog</code></td><td>Watchdog never quarantines</td><td>Black-hole run: victims stuck; test T10</td></tr>
+<tr><td><code>hair_trigger</code></td><td>Watchdog fires after 2 starved cycles, not the limit</td><td><b>Honest</b> protocol runs: false alarms on tiles that never stopped consuming; test T10's short-stall case</td></tr>
+</tbody></table>
+<p>The last mutant matters as much as the first three. A security mechanism with a false-positive bug discards honest traffic, which is a self-inflicted denial of service. It is caught only because two checks look for it: every honest run treats any alarm as a failure, and T10 deliberately stalls a tile for less than the limit.</p>
+
+<h3>Hardware cost</h3>
+<p>All of it sits at one port per router. Source stamping turns the 8 source bits into constants. The network guard is a 2-bit compare per local VC gating the FIFO push. The watchdog is, per network, a counter of <i>log<sub>2</sub>(limit+1)</i> bits (9 bits at 256), a quarantine flop and an override on that network's credit check. Section 5.7 measures it: the secure router is smaller than the unprotected one.</p>

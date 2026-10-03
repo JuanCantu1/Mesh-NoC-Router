@@ -1,0 +1,168 @@
+<h1 id="design">The final design</h1>
+<p>This chapter specifies the router as it stands at the end of M8: <code>m8_pipeline/rtl/</code>, five files and 1,339 lines. It is a description of what was built, written from the RTL and its comments. A formal hardware specification (HAS) and micro-architecture specification (MAS) are planned as separate documents; this chapter is the content they will start from.</p>
+<table class="tight">
+<thead><tr><th style="width:24%">File</th><th class="num" style="width:9%">Lines</th><th>Contents</th></tr></thead>
+<tbody>
+<tr><td><code>noc_pkg.sv</code></td><td class="num">104</td><td>Flit type, port and message-class constants, <code>vn_of()</code>, and the simulation-only violation counters</td></tr>
+<tr><td><code>rr_arbiter.sv</code></td><td class="num">97</td><td>Masked round-robin arbiter with a second, pointer-neutral request port</td></tr>
+<tr><td><code>flit_fifo.sv</code></td><td class="num">97</td><td>Circular-buffer FIFO with a side-band tag, reset-free storage, overflow checker</td></tr>
+<tr><td><code>vc_router.sv</code></td><td class="num">827</td><td>The router: input buffering, route tags, eligibility, two-pass switch allocation, VC allocation, datapath, optional pipeline stage, credits, local-port security, invariants</td></tr>
+<tr><td><code>vc_mesh.sv</code></td><td class="num">214</td><td>A <code>MESH_W</code> by <code>MESH_H</code> grid of routers wired by constant slices, with an edge-misroute check</td></tr>
+</tbody></table>
+
+<h2 id="d-arch">Architecture</h2>
+<figure>
+<svg viewBox="0 0 560 318" role="img" aria-label="Block diagram of the router: input side, allocation, datapath">
+  <defs>
+    <marker id="d1" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L8,4 L0,8z" fill="#8892a0"/></marker>
+    <marker id="d1o" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L8,4 L0,8z" fill="#d2622e"/></marker>
+  </defs>
+  <rect class="dash-box" x="4" y="4" width="552" height="88" rx="6"/><text x="12" y="17" class="t-s t-mute">INPUT SIDE, one copy per port (north, south, east, west, local)</text>
+  <rect class="dash-box" x="4" y="100" width="552" height="96" rx="6"/><text x="12" y="113" class="t-s t-mute">ALLOCATION, stage 1 (everything here is decided in one cycle)</text>
+  <rect class="dash-box" x="4" y="204" width="552" height="108" rx="6"/><text x="12" y="217" class="t-s t-mute">DATAPATH AND OUTPUT SIDE</text>
+
+  <g class="t-s" text-anchor="middle">
+    <rect class="bx-w" x="12" y="30" width="82" height="48" rx="4"/><text x="53" y="50" class="t-m">Link in</text><text x="53" y="64" class="t-mono t-mute">valid, vc, flit</text>
+    <rect class="bx-y" x="108" y="30" width="112" height="48" rx="4"/><text x="164" y="46" class="t-m">Ingress guard</text><text x="164" y="58">local port only:</text><text x="164" y="69">stamp source, check VN</text>
+    <rect class="bx" x="234" y="30" width="96" height="48" rx="4"/><text x="282" y="48" class="t-m">Route compute</text><text x="282" y="62">XY, once per</text><text x="282" y="73">port, at write</text>
+    <rect class="bx-g" x="344" y="30" width="132" height="48" rx="4"/><text x="410" y="46" class="t-m">VC FIFOs</text><text x="410" y="58">NUM_VCS per port, each</text><text x="410" y="69">flit + 3-bit route tag</text>
+  </g>
+  <g class="ln" marker-end="url(#d1)"><path d="M94 54H106"/><path d="M220 54H232"/><path d="M330 54H342"/></g>
+  <path d="M410 78V120" class="ln" marker-end="url(#d1)"/>
+  <path d="M476 66H548" class="ln-o" marker-end="url(#d1o)"/><text x="512" y="60" text-anchor="middle" class="t-s" style="fill:#d2622e">credit_return</text><text x="512" y="84" text-anchor="middle" class="t-s t-mute">per pop, per VC</text>
+
+  <g class="t-s" text-anchor="middle">
+    <rect class="bx" x="12" y="124" width="132" height="58" rx="4"/><text x="78" y="140" class="t-m">Eligibility</text><text x="78" y="153">head present, route</text><text x="78" y="164">matches, credit in</text><text x="78" y="175">the flit's VN</text>
+    <rect class="bx-a" x="158" y="124" width="156" height="58" rx="4"/><text x="236" y="140" class="t-m">Switch allocation</text><text x="236" y="153">input arbiter per port, output</text><text x="236" y="164">arbiter per port, optional</text><text x="236" y="175">second pass (SA_ITERS=2)</text>
+    <rect class="bx-a" x="328" y="124" width="112" height="58" rx="4"/><text x="384" y="140" class="t-m">VC allocation</text><text x="384" y="153">round-robin over</text><text x="384" y="164">VCs of the VN that</text><text x="384" y="175">hold credit</text>
+    <rect class="bx-y" x="454" y="124" width="94" height="58" rx="4"/><text x="501" y="140" class="t-m">Credit counters</text><text x="501" y="153">one per output VC</text><text x="501" y="164">&minus;1 per send</text><text x="501" y="175">+1 per credit_return in</text>
+  </g>
+  <g class="ln" marker-end="url(#d1)"><path d="M144 153H156"/><path d="M314 153H326"/></g>
+  <path d="M454 168H440" class="ln" marker-end="url(#d1)" style="display:none"/>
+  <path d="M501 124V114H78V122" class="ln-d" marker-end="url(#d1)"/>
+  <path d="M236 182V222" class="ln" marker-end="url(#d1)"/><text x="246" y="196" class="t-s t-mute">grants</text>
+
+  <g class="t-s" text-anchor="middle">
+    <rect class="bx" x="12" y="226" width="104" height="52" rx="4"/><text x="64" y="244" class="t-m">VC mux</text><text x="64" y="257">one per input port,</text><text x="64" y="268">picks the winning VC</text>
+    <rect x="132" y="226" width="112" height="52" rx="4" fill="#fff" stroke="#8892a0" stroke-dasharray="4 3"/><text x="188" y="244" class="t-m">Stage register</text><text x="188" y="257">flit, crossbar select,</text><text x="188" y="268">output VC (PIPE=1 only)</text>
+    <rect class="bx" x="260" y="226" width="104" height="52" rx="4"/><text x="312" y="244" class="t-m">5 x 5 crossbar</text><text x="312" y="257">each output takes the</text><text x="312" y="268">flit of its granted input</text>
+    <rect class="bx-w" x="380" y="226" width="92" height="52" rx="4"/><text x="426" y="244" class="t-m">Output ports</text><text x="426" y="257" class="t-mono t-mute">valid, vc, flit</text>
+    <rect class="bx-y" x="380" y="286" width="168" height="20" rx="4"/><text x="464" y="300">Watchdog, local output only</text>
+  </g>
+  <g class="ln" marker-end="url(#d1)"><path d="M116 252H130"/><path d="M244 252H258"/><path d="M364 252H378"/></g>
+  <path d="M464 286V280" class="ln" marker-end="url(#d1)"/>
+  <path d="M472 236H548" class="ln-a" marker-end="url(#d1)" style="display:none"/>
+  <path d="M472 252H548" class="ln" marker-end="url(#d1)"/><text x="510" y="246" text-anchor="middle" class="t-s t-mute">to neighbor</text>
+  <path d="M548 266H500" class="ln-o" marker-end="url(#d1o)" style="display:none"/>
+</svg>
+<figcaption><b>Figure 6.1.</b> Router block diagram. A flit is written into a VC FIFO with its route tag; each cycle the head flits are filtered by eligibility, matched to outputs by the allocator, given an output VC, selected by a per-port mux, and sent through the crossbar, with an optional register after the mux. Credits flow in the opposite direction on a separate wire per VC.</figcaption>
+</figure>
+
+<h2 id="d-if">Interfaces</h2>
+<h3>Router</h3>
+<table class="tight">
+<thead><tr><th style="width:24%">Signal</th><th style="width:9%">Dir.</th><th style="width:21%">Width</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td><code>clk</code>, <code>rst_n</code></td><td>in</td><td>1</td><td>Clock; asynchronous active-low reset for control state</td></tr>
+<tr><td><code>in_valid</code></td><td>in</td><td>5</td><td>A flit arrives on this port this cycle</td></tr>
+<tr><td><code>in_vc</code></td><td>in</td><td>5 &times; 3</td><td>VC the arriving flit goes into; the sender holds a credit for it</td></tr>
+<tr><td><code>in_data</code></td><td>in</td><td>5 &times; 34</td><td>The arriving flit</td></tr>
+<tr><td><code>in_credit_return</code></td><td>out</td><td>5 &times; NUM_VCS</td><td>One-cycle pulse on wire [p&middot;NUM_VCS + v] when VC v of input p frees a slot</td></tr>
+<tr><td><code>out_valid</code></td><td>out</td><td>5</td><td>A flit leaves on this port this cycle</td></tr>
+<tr><td><code>out_vc</code></td><td>out</td><td>5 &times; 3</td><td>The output VC the flit was allocated</td></tr>
+<tr><td><code>out_data</code></td><td>out</td><td>5 &times; 34</td><td>The leaving flit</td></tr>
+<tr><td><code>out_credit_return</code></td><td>in</td><td>5 &times; NUM_VCS</td><td>Downstream returns a credit for output VC w of port o on wire [o&middot;NUM_VCS + w]</td></tr>
+<tr><td><code>alarm</code></td><td>out</td><td>3</td><td>All zero when <code>SECURE=0</code>. [0]: pulse, a local flit was refused at ingress. [1]: level, the local ejection port is quarantined. [2]: pulse, a flit for the quarantined tile was discarded.</td></tr>
+</tbody></table>
+<p>Port numbers are N=0, S=1, E=2, W=3, local=4. Row numbers grow downward, so a larger Y is south. VC numbering is <code>vc = vn &times; VCS_PER_VN + k</code>, so with three networks of two VCs, REQ owns VC0 and VC1, SNP owns VC2 and VC3, RSP owns VC4 and VC5.</p>
+<h3>Mesh</h3>
+<p><code>vc_mesh</code> exposes, per tile (index <i>y &times; MESH_W + x</i>), the local port's input and output (valid, VC, flit, credit wires) and a 3-bit alarm vector, <code>tile_alarm</code>. Router-to-router links are constant-slice assigns: router (x,y)'s south output feeds router (x,y+1)'s north input, and credit wires run the opposite way. Boundary ports are tied off, and an assertion fires if a flit ever leaves through one.</p>
+
+<h2 id="d-params">Parameters</h2>
+<table class="tight">
+<thead><tr><th style="width:19%">Parameter</th><th style="width:11%">Default</th><th style="width:19%">Legal values</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td><code>X_ID</code>, <code>Y_ID</code></td><td>0, 0</td><td>0 to 15</td><td>This router's mesh coordinates (set per instance by the mesh)</td></tr>
+<tr><td><code>MESH_W</code>, <code>MESH_H</code></td><td>3, 3</td><td>1 to 16</td><td>Mesh dimensions, <code>vc_mesh</code> only</td></tr>
+<tr><td><code>NUM_VNS</code></td><td>1</td><td>1 or 3</td><td>Virtual networks: 1 means all classes share, 3 means one per message class</td></tr>
+<tr><td><code>VCS_PER_VN</code></td><td>1</td><td>NUM_VNS &times; this &le; 8</td><td>VCs inside each network</td></tr>
+<tr><td><code>BUFFER_DEPTH</code></td><td>4</td><td>&ge; 1</td><td>Flits per VC buffer, and each output VC's initial credit</td></tr>
+<tr><td><code>SA_ITERS</code></td><td>1</td><td>1 or 2</td><td>Switch-allocation passes per cycle</td></tr>
+<tr><td><code>SECURE</code></td><td>1</td><td>0 or non-zero</td><td>Harden the local port. 0 builds M5's behavior, the vulnerable baseline.</td></tr>
+<tr><td><code>WD_LIMIT</code></td><td>256</td><td>&ge; 1</td><td>Cycles of ejection starvation before quarantine</td></tr>
+<tr><td><code>PIPE</code></td><td>0</td><td>0 or 1</td><td>0: one cycle per hop. 1: two stages per hop.</td></tr>
+</tbody></table>
+<p>Illegal combinations stop the simulation with a <code>CONFIG ERROR</code> message. Those checks are simulation-only and sit behind <code>`ifndef SYNTHESIS</code>.</p>
+
+<h2 id="d-op">Operation, step by step</h2>
+<p>The RTL is organized as numbered steps. In <code>PIPE=0</code> everything from step 1 to step 6 happens in one clock cycle, and a flit allocated in a cycle appears at the neighbor's FIFO at the next clock edge.</p>
+<h3>Step 0: write into a VC FIFO</h3>
+<p>A flit is pushed into the FIFO that its link-level <code>vc</code> names. On the local port with <code>SECURE=1</code> two rules apply first (Section 6.7). The XY route is computed here, once per input port from the destination and the router's own coordinates, and stored in a 3-bit tag beside the flit. Storage is 37 bits per slot (34 flit bits and the tag).</p>
+<h3>Step 1: read the route</h3>
+<p>At the head of each FIFO the route is simply read from the tag. This is route-at-write (M7): the same decision in the same cycle, with one comparator per port in place of one per VC.</p>
+<h3>Step 2: eligibility</h3>
+<p>Input VC <i>I</i> requests output <i>o</i> if its FIFO is not empty, its route tag selects <i>o</i>, and output <i>o</i> has at least one free slot in some VC of the flit's own network. A flit's network is simply which VC it sits in; the isolation checks keep that true.</p>
+<h3>Step 3: switch allocation</h3>
+<ol>
+<li><b>Pass 1, input stage.</b> Each input port nominates one eligible VC, chosen round-robin over its VCs.</li>
+<li><b>Pass 1, output stage.</b> Each output grants one of the input ports whose nominee wants it, round-robin. Only pass-1 wins rotate the round-robin pointers.</li>
+<li><b>Pass 2</b> (<code>SA_ITERS=2</code>). Inputs and outputs left unmatched repeat both stages, using the second request port of the same arbiters. This pass never moves a pointer.</li>
+</ol>
+<h3>Step 4: datapath</h3>
+<p>Each input port has exactly one crossbar input. Its VC mux selects the VC that won in pass 1 or pass 2, and that VC pops. Each output then takes the flit of the input it granted. One flit per input per cycle is therefore a property of the wiring and not only of the allocator, and the structure is cheaper than a flat (ports &times; VCs)-to-1 mux per output, which would need about twice the mux inputs at four VCs.</p>
+<h3>Step 5: VC allocation</h3>
+<p>Each sending output gives its flit an output VC: round-robin among the VCs of the flit's network that hold credit. Eligibility already guaranteed one exists, so VC allocation can safely come after switch allocation (it could not if packets had several flits).</p>
+<h3>Step 6: where the hop ends</h3>
+<p>With <code>PIPE=0</code> the crossbar and output port use the signals directly. With <code>PIPE=1</code> stage 1 ends in a register holding, per output, the flit, the crossbar select and the output VC (plus a valid bit and the watchdog's discard flag), and stage 2 runs the crossbar and link from those registers. The pop, the credit return upstream, the credit charge and the arbiter updates all happen in stage 1.</p>
+
+<h2 id="d-credits">Flow control</h2>
+<ul>
+<li><b>Per output VC</b>, a counter initialized to <code>BUFFER_DEPTH</code>. A send decrements it; a <code>credit_return</code> pulse on that VC's wire increments it. The counter's width is <i>log<sub>2</sub>(BUFFER_DEPTH+1)</i> bits.</li>
+<li><b>Invariant</b> (checked every cycle, and proved for the whole router): credits held plus flits in flight plus free slots equal <code>BUFFER_DEPTH</code>. The counter never exceeds the depth, no router sends into a full buffer, and no router returns a credit it does not owe.</li>
+<li><b>Credit loop length.</b> In <code>PIPE=0</code> a credit is back two cycles after its flit was allocated; in <code>PIPE=1</code>, three. A VC needs a buffer at least as deep as the loop to sustain full link rate, which is why a 2-deep single VC reaches only two thirds of a link in two-stage mode.</li>
+<li><b>VN-level credit check.</b> Eligibility asks whether any VC of the flit's network at the output has credit; the VC allocator then picks one that does.</li>
+</ul>
+
+<h2 id="d-fair">Fairness guarantees</h2>
+<p>Both bounds are exact consequences of the round-robin pointer rules, checked every cycle in every router, and proved for arbiters of every width the router uses:</p>
+<ul>
+<li><b>Output stage:</b> an input port that keeps requesting an output waits at most <i>NUM_PORTS &minus; 1</i> grants.</li>
+<li><b>Input stage:</b> an eligible VC sees at most <i>NUM_VCS &minus; 1</i> pass-1 wins by its sibling VCs.</li>
+<li><b>Pass 2 cannot break either bound</b> because it never moves a pointer.</li>
+</ul>
+
+<h2 id="d-sec">Local-port security</h2>
+<p>With <code>SECURE=1</code>, three mechanisms act at the local port and nowhere else:</p>
+<table class="tight">
+<thead><tr><th style="width:21%">Mechanism</th><th>Behavior</th></tr></thead>
+<tbody>
+<tr><td><b>Source stamping</b></td><td>On the local input only, the flit's source fields are replaced by the router's own coordinates before the flit is stored. The tile's claimed source is discarded.</td></tr>
+<tr><td><b>Network guard</b></td><td>A local flit is accepted only into a VC of its class's network. Otherwise it is refused (alarm[0] pulses), nothing is stored, and the credit the tile spent is not returned.</td></tr>
+<tr><td><b>Starvation watchdog</b></td><td>Per network, a counter of consecutive cycles in which a flit waits for the local port and the network has no ejection credit. At <code>WD_LIMIT</code> the network is quarantined (alarm[1] is high): its flits still win the switch but are discarded, each pulsing alarm[2]. Any credit returned lifts quarantine immediately and resets the count.</td></tr>
+</tbody></table>
+<p>Transit flits on router-to-router links are not stamped or guarded, because links are trusted. A wrong-network flit on a link is an RTL bug and fires an assertion. Assertions about link traffic apply only when <code>SECURE</code> is non-zero, since with <code>SECURE=0</code> the local port is deliberately unchecked and the attack tests need the router to carry the attacker's flits.</p>
+
+<h2 id="d-mesh">The mesh</h2>
+<p><code>vc_mesh</code> instantiates one router per grid position with its coordinates, passes all parameters through, and connects neighbors with continuous assigns between constant slices (no runtime indexing, which this Icarus build mishandles). Vertical links join router (x,y)'s south port to (x,y+1)'s north port; horizontal links join east to west. It adds one invariant: a flit may never leave through an edge port, which would be a misroute.</p>
+
+<h2 id="d-impl">Implementation notes</h2>
+<ul>
+<li><b>Reset.</b> Control state (FIFO pointers and counts, credit counters, arbiter priorities, watchdog counters and quarantine flags, pipeline valid bits) resets asynchronously, active low. Datapath storage (FIFO slots and tags, pipeline data registers) has no reset, because an empty buffer's contents never matter and non-reset flops are smaller.</li>
+<li><b>Arbiter.</b> A thermometer mask of positions at or above the priority pointer, granting the lowest set bit of requests AND mask, or the lowest set bit of requests if none (wrap-around); lowest set bit by <i>x AND (NOT x + 1)</i>. Formally equivalent to M1's loop-based arbiter for 1 to 8 requesters.</li>
+<li><b>Encoders.</b> One-hot to binary conversions are flat generate-based encoders, not chained ORs, which Verilator flagged as false combinational loops.</li>
+<li><b>Simulation-only code.</b> All checkers, counters and configuration checks are behind <code>`ifndef SYNTHESIS</code>. Violations increment a global counter in the package, and every testbench fails if it is nonzero.</li>
+<li><b>Lint and synthesis.</b> Zero Verilator warnings on both views. The design synthesizes through Yosys with the slang frontend, flattened as a whole mesh for timing.</li>
+<li><b>Simulator-driven style.</b> Constant-indexed arrays and generate loops replace runtime array indexing, and package functions are called with explicit package scope inside generate blocks. Appendix E lists the quirks.</li>
+</ul>
+
+<h2 id="d-perf">Characteristics at a glance</h2>
+<table class="tight">
+<thead><tr><th>Property</th><th>Value (3&times;3, uniform traffic unless stated)</th></tr></thead>
+<tbody>
+<tr><td>Latency per hop, zero load</td><td>1 cycle (<code>PIPE=0</code>) or 2 cycles (<code>PIPE=1</code>); average path 3 routers, so 3.0 or 6.0 cycles</td></tr>
+<tr><td>Peak throughput, simple router</td><td>0.756 (single-cycle), 0.737 (two-stage) flits per node per cycle</td></tr>
+<tr><td>Peak throughput, 4 VCs &times; 2, two-pass</td><td>0.905 (single-cycle), 0.901 (two-stage)</td></tr>
+<tr><td>Area per router (whole mesh, sky130)</td><td>25,612 &micro;m&sup2; (simple) to 82,047 &micro;m&sup2; (3 VNs &times; 2 VCs &times; 2, two-pass, secure, two-stage)</td></tr>
+<tr><td>Critical path (whole mesh, pre-layout)</td><td>3.33 ns (simple, two-stage) to 10.09 ns (3 VNs &times; 2 VCs &times; 2, two-pass, secure, two-stage)</td></tr>
+<tr><td>Storage</td><td>5 ports &times; NUM_VCS &times; BUFFER_DEPTH &times; 37 bits per router</td></tr>
+</tbody></table>

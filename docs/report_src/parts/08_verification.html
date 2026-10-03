@@ -1,0 +1,140 @@
+<h1 id="verification">Verification</h1>
+<p>This chapter describes how the project establishes that the router is correct, and how it knows the checks themselves can fail. The approach is layered: each layer finds a different kind of bug, and several layers are aimed at the others.</p>
+
+<h2 id="v-strategy">Strategy</h2>
+<table>
+<thead><tr><th style="width:22%">Layer</th><th>What it catches</th><th style="width:19%">Used from</th></tr></thead>
+<tbody>
+<tr><td><b>Directed tests</b></td><td>Specific behaviors and corner cases, stated one at a time, with an expected result. Fast to read and to debug.</td><td>M1</td></tr>
+<tr><td><b>Scoreboards</b></td><td>Loss, duplication, misrouting, reordering and data corruption under randomized load, tracked per packet.</td><td>M4</td></tr>
+<tr><td><b>Embedded invariants</b></td><td>Wrong <i>behavior</i> that has not yet produced a wrong <i>answer</i>: credit overflow, buffer overflow, network escape, starvation, edge misroute. Active in every run of every testbench.</td><td>M4</td></tr>
+<tr><td><b>Analytic models</b></td><td>Throughput above a physical bound, or latency that disagrees with the hop count. These expose a whole class of errors that no individual check names.</td><td>M4, M8</td></tr>
+<tr><td><b>Equivalence runs</b></td><td>Any change in behavior caused by a refactor or by a feature that should be invisible, down to every latency percentile.</td><td>M5</td></tr>
+<tr><td><b>Attack matrix</b></td><td>Defenses that do not defend and attacks that do not attack. Requires success without the defense and containment with it.</td><td>M6</td></tr>
+<tr><td><b>Mutation testing</b></td><td>Checkers that cannot see a bug. Plants known bugs and requires failure.</td><td>M4</td></tr>
+<tr><td><b>Formal proofs</b></td><td>Counterexamples that simulation never reaches. Exhaustive within a bound, or unbounded when proved by induction. Carries negative controls.</td><td>M7</td></tr>
+<tr><td><b>Lint</b></td><td>Width and sensitivity errors, unintended latches or loops, and mismatches between the simulation and synthesis views.</td><td>M7</td></tr>
+<tr><td><b>Replay checker</b></td><td>A visualization that shows something that did not happen.</td><td>Visualizer</td></tr>
+</tbody></table>
+
+<h2 id="v-tb">Testbenches</h2>
+<table>
+<thead><tr><th style="width:24%">Testbench</th><th>Purpose</th><th style="width:25%">Main controls</th></tr></thead>
+<tbody>
+<tr><td><code>vc_router_tb.sv</code> with <code>router_harness.sv</code></td><td>Directed tests of a single router (28 checks at M8). The harness instantiates a router with chosen parameters and models its neighbors, and several tests replay one stimulus on two configurations side by side (1 VC versus 2 VCs, 1 pass versus 2).</td><td>Macro <code>TB_PIPE</code> selects the hop structure</td></tr>
+<tr><td><code>protocol_tb.sv</code></td><td>A full mesh running the coherence-style protocol. Every tile is requester, home and owner, with two-slot out-queues. Checks every message on arrival, detects deadlock (500 idle cycles) and prints where every stuck message is. Also implements the spoofing, hopping and flood attacks and an access-control list at the homes.</td><td>Plusargs <code>+OUTSTANDING</code>, <code>+RATE</code>, <code>+SEED</code>, <code>+CYCLES</code>, <code>+EXPECT_DEADLOCK</code>, <code>+ATTACK</code>, <code>+ATTACKER</code>, <code>+EXPECT_COMPROMISE</code>, <code>+NODUMP</code>; macros <code>PROTO_*</code></td></tr>
+<tr><td><code>latency_sweep_tb.sv</code></td><td>One open-loop latency and throughput measurement at a chosen pattern and load, with the four phases of Section 3.8. Each run is also a full correctness run. Implements the black-hole attack.</td><td>Plusargs <code>+PATTERN</code>, <code>+RATE</code>, <code>+BLACKHOLE</code>, <code>+BH_START</code>, <code>+EXPECT_COMPROMISE</code>, <code>+NODUMP</code>; macros <code>SWEEP_*</code></td></tr>
+</tbody></table>
+<h3>What every sweep and protocol run checks</h3>
+<ul>
+<li>No misroutes, loss or duplication; every packet arrives once, at the right tile.</li>
+<li>No virtual-network escapes; the source field matches the true sender (after stamping).</li>
+<li>No false security alarms on honest traffic (any alarm fails an honest run).</li>
+<li>No invariant violations anywhere in the mesh.</li>
+<li>The network drains completely after load stops, which fails the run if any packet is lost or deadlocked.</li>
+<li>For the protocol: every message is the one its transaction is waiting for, and every transaction completes.</li>
+</ul>
+
+<h2 id="v-inv">Embedded invariants</h2>
+<p>All are simulation-only, wrapped in <code>`ifndef SYNTHESIS</code>, and each violation increments <code>noc_pkg::assertion_violations</code>. Every testbench fails if the counter is nonzero, so a fired assertion cannot scroll past unnoticed.</p>
+<table class="tight">
+<thead><tr><th>Invariant</th><th style="width:15%">Where</th><th style="width:11%">Since</th></tr></thead>
+<tbody>
+<tr><td>FIFO occupancy never exceeds capacity</td><td>flit_fifo</td><td>M4</td></tr>
+<tr><td>No push into a full buffer (a sender without credit); the flit would be lost</td><td>flit_fifo</td><td>M5</td></tr>
+<tr><td>Credit count never exceeds buffer depth, per output VC</td><td>vc_router</td><td>M4, per VC in M5</td></tr>
+<tr><td>A flit arriving on a router-to-router link enters only a VC of its class's network (active when <code>SECURE</code> is non-zero; at the local port the same flit is refused instead)</td><td>vc_router</td><td>M5</td></tr>
+<tr><td>A flit names a VC that exists</td><td>vc_router</td><td>M5</td></tr>
+<tr><td>Every sending output was given an output VC</td><td>vc_router</td><td>M5</td></tr>
+<tr><td>An output takes at most one input; an input feeds at most one output</td><td>vc_router</td><td>M5</td></tr>
+<tr><td>Output-stage fairness: a continuous requester waits at most <i>NUM_PORTS &minus; 1</i> grants</td><td>vc_router</td><td>M4, tightened in M5</td></tr>
+<tr><td>Input-stage fairness: an eligible VC sees at most <i>NUM_VCS &minus; 1</i> pass-1 wins by siblings</td><td>vc_router</td><td>M5</td></tr>
+<tr><td>No flit ever leaves through an edge port</td><td>vc_mesh</td><td>M5</td></tr>
+<tr><td>Longest honest ejection stall is tracked (<code>wd_max_starve</code>) for the watchdog study</td><td>vc_router</td><td>M6</td></tr>
+</tbody></table>
+
+<h2 id="v-equiv">Equivalence runs</h2>
+<table class="tight">
+<thead><tr><th style="width:24%">Comparison</th><th class="num" style="width:11%">Runs</th><th>Result</th></tr></thead>
+<tbody>
+<tr><td>M5 router configured as M4, versus M4's sweep</td><td class="num">80</td><td>Identical, every column. Also a 3-VN router with one class active.</td></tr>
+<tr><td>M6 security layer, no attacker, <code>SECURE=1</code> and <code>0</code>, versus M4</td><td class="num">160</td><td>Identical to M4, digit for digit</td></tr>
+<tr><td>M6, best VC configuration, four patterns, versus M5</td><td class="num">80</td><td>Identical to M5, every column</td></tr>
+<tr><td>M6, protocol runs with one network per class, versus M5</td><td class="num">48</td><td>Identical, zero alarms</td></tr>
+<tr><td>M7 and M8 (<code>PIPE=0</code>) after timing changes, versus M4 to M6</td><td class="num">288</td><td>Identical (the M6 total of 160 + 80 + 48)</td></tr>
+</tbody></table>
+<p>Run in the final regression: all three comparisons of the 288-run set pass in about 11 minutes (680 s). The two-stage router (<code>PIPE=1</code>) is not expected to match in latency, since each hop takes an extra cycle by design, and is verified by its own sweeps and the model.</p>
+
+<h2 id="v-attack">The attack matrix</h2>
+<p>Every attack runs against both routers: spoofing, virtual-network hopping and flooding, 8 seeds each, and the black hole at two tiles and two loads. That is 56 runs per pipeline mode. A passing matrix requires both directions at once: every attack succeeds against <code>SECURE=0</code> and is contained by <code>SECURE=1</code>, and the flood control harms neither. With <code>PIPE=0</code> the results files are identical to M6's; with <code>PIPE=1</code> every attack is contained.</p>
+
+<h2 id="v-mut">Mutation testing</h2>
+<p>A script copies the RTL, applies one realistic bug, and runs six testbench configurations against the copy. The unmutated RTL goes through the same harness first and must pass. Every mutant must make at least one run fail. All 11 are caught in both pipeline modes.</p>
+<table class="tight">
+<thead><tr><th style="width:19%">Mutant</th><th style="width:29%">Bug planted</th><th>Caught by</th></tr></thead>
+<tbody>
+<tr><td><code>credit_overflow</code></td><td>Credit counters reset one above capacity</td><td>Credit-bound invariant, all testbenches</td></tr>
+<tr><td><code>fixed_priority</code></td><td>Round-robin pointers never advance</td><td>Output- and input-stage fairness invariants; directed test</td></tr>
+<tr><td><code>route_east_west</code></td><td>East-bound flits routed west</td><td>Edge-misroute invariant; directed test</td></tr>
+<tr><td><code>vn_escape</code></td><td>Output-VC allocation ignores the network</td><td>Network-isolation invariant (protocol run); directed test</td></tr>
+<tr><td><code>credit_wrong_vc</code></td><td>A pop returns its credit on the neighboring VC's wire</td><td>Credit-bound invariant; directed test</td></tr>
+<tr><td><code>pass2_reuse_input</code></td><td>Pass 2 lets an input that won in pass 1 win again</td><td>Crossbar-input invariant</td></tr>
+<tr><td><code>pass2_reuse_output</code></td><td>Pass 2 grants an output that pass 1 already gave away</td><td>Crossbar-output invariant</td></tr>
+<tr><td><code>no_stamp</code></td><td>Source stamping removed</td><td>Spoofing run (breaches above zero); directed test</td></tr>
+<tr><td><code>no_vn_guard</code></td><td>Ingress network check removed</td><td>Hopping run; directed test</td></tr>
+<tr><td><code>no_watchdog</code></td><td>Watchdog never quarantines</td><td>Black-hole run; directed test</td></tr>
+<tr><td><code>hair_trigger</code></td><td>Watchdog fires after 2 starved cycles</td><td>Honest protocol runs (false alarms); directed test</td></tr>
+</tbody></table>
+<p>The mutation script guards its own patterns: each mutation is applied with a text substitution that must change exactly the intended line, and when an RTL edit later moved a line the guard reported the stale pattern instead of silently running an unmutated copy. (An earlier problem of the same family: Python on Windows wrote carriage returns that made the shell substitutions miss. All files were normalized and the guards added.)</p>
+
+<h2 id="v-formal">Formal verification</h2>
+<table class="tight">
+<thead><tr><th style="width:22%">Proof</th><th style="width:22%">Method</th><th>Scope and result</th></tr></thead>
+<tbody>
+<tr><td>Arbiter equivalence</td><td>Bounded model checking (complete here)</td><td>New versus original arbiter, N = 1 to 8, identical grants every cycle</td></tr>
+<tr><td>Arbiter properties P1 to P5</td><td>k-induction (unbounded)</td><td>Grant only to a requester; at most one grant; grant if anyone requests; the same for pass 2; fairness within N cycles. N = 1 to 8.</td></tr>
+<tr><td>Router credit protocol C1 to C3</td><td>Bounded model checking, 12 cycles</td><td>Never send into a full buffer; never return a credit not owed; every flit leaves on a real VC. Single-cycle and two-stage, 2 VCs with two passes.</td></tr>
+<tr><td>Router network isolation C4</td><td>Bounded model checking, 12 cycles</td><td>Every flit leaves in its own class's network, even when the local tile sends anything. 3 networks, secure. Single-cycle and two-stage. Link ports assumed trusted; the local port is not.</td></tr>
+<tr><td>Negative controls (4)</td><td>Same proofs on planted bugs</td><td>Each must <i>fail</i>: mask off by one, fixed priority, credits reset too high, VC allocation ignoring the network. All four fail as required.</td></tr>
+</tbody></table>
+<p>In total the final regression runs 20 proofs plus 4 negative controls: 16 arbiter proofs (8 equivalence, 8 property sets) and 4 router proofs (two configurations, each in both pipeline modes). The proofs are bounded for the whole router and unbounded for the arbiter. The router proof does not by itself show absence of protocol deadlock, which is established by the argument in Section 5.5 and the simulation sweeps.</p>
+
+<h2 id="v-lint">Lint</h2>
+<p>Verilator <code>-Wall</code> over both views and several configurations reports zero warnings. Waivers are global only where the toolchain forces them and otherwise inline with a reason (Section 5.7).</p>
+
+<h2 id="v-regress">The full regression</h2>
+<p><code>./regress.sh --full</code> runs everything above. Each step must print its own testbench's PASS line, and the script exits non-zero if any step does not. The recorded run:</p>
+<table class="tight">
+<thead><tr><th style="width:35%">Step</th><th class="num" style="width:12%">Result</th><th class="num" style="width:12%">Time</th><th>What it covers</th></tr></thead>
+<tbody>
+<tr><td>M1 single router</td><td class="num pass">PASS</td><td class="num">0 s</td><td>13 / 13 directed checks</td></tr>
+<tr><td>M2 mesh</td><td class="num pass">PASS</td><td class="num">1 s</td><td>11 / 11 directed checks</td></tr>
+<tr><td>M3 flow control</td><td class="num pass">PASS</td><td class="num">0 s</td><td>FIFO unit test; 23 / 23 router checks</td></tr>
+<tr><td>M4 verification</td><td class="num pass">PASS</td><td class="num">21 s</td><td>12 / 12 mesh checks; four traffic scoreboards; one sweep point</td></tr>
+<tr><td>M5 virtual networks</td><td class="num pass">PASS</td><td class="num">65 s</td><td>17 / 17 directed; protocol with and without VNs</td></tr>
+<tr><td>M6 security</td><td class="num pass">PASS</td><td class="num">153 s</td><td>28 / 28 directed; honest runs; each attack on both routers (9 steps)</td></tr>
+<tr><td>M7 synthesis</td><td class="num pass">PASS</td><td class="num">150 s</td><td>Lint (0 warnings) and M6's suite on M7's RTL (10 steps)</td></tr>
+<tr><td>M8 pipeline</td><td class="num pass">PASS</td><td class="num">205 s</td><td>Lint and the suite in both pipeline modes (15 steps)</td></tr>
+<tr><td>Replay data check</td><td class="num pass">PASS</td><td class="num">0 s</td><td>Handoffs, routes, networks, depths</td></tr>
+<tr><td>M8 equivalence</td><td class="num pass">PASS</td><td class="num">680 s</td><td>288 runs identical to M4 and M5</td></tr>
+<tr><td>M8 attack matrix, <code>PIPE=0</code></td><td class="num pass">PASS</td><td class="num">179 s</td><td>56 runs; contained; identical to M6</td></tr>
+<tr><td>M8 attack matrix, <code>PIPE=1</code></td><td class="num pass">PASS</td><td class="num">149 s</td><td>56 runs; contained</td></tr>
+<tr><td>M8 mutation test, <code>PIPE=0</code></td><td class="num pass">PASS</td><td class="num">231 s</td><td>11 mutants, all caught</td></tr>
+<tr><td>M8 mutation test, <code>PIPE=1</code></td><td class="num pass">PASS</td><td class="num">202 s</td><td>11 mutants, all caught</td></tr>
+<tr><td>M8 formal</td><td class="num pass">PASS</td><td class="num">336 s</td><td>20 proofs and 4 negative controls</td></tr>
+<tr><td>M8 synthesis</td><td class="num pass">PASS</td><td class="num">209 s</td><td>Whole-mesh sky130 synthesis, all configurations</td></tr>
+<tr><td>M8 4&times;4 mesh study</td><td class="num pass">PASS</td><td class="num">310 s</td><td>80 sweep points, protocol, deadlock, black hole on 4&times;4</td></tr>
+<tr><td>Replay regeneration</td><td class="num pass">PASS</td><td class="num">57 s</td><td>Five simulations, conversion, check, bundle</td></tr>
+<tr class="hl"><td><b>Total</b></td><td class="num pass"><b>18 / 18</b></td><td class="num"><b>2,949 s</b></td><td>about 49 minutes</td></tr>
+</tbody></table>
+
+<h2 id="v-limits">What the verification does not establish</h2>
+<p>Stating the limits is part of the evidence.</p>
+<ul>
+<li><b>Deadlock freedom is argued and measured, not proved by a tool.</b> The argument is the backward chain of Section 5.5; the evidence is 48 protocol runs per configuration with zero deadlocks, a drain-after-load check on every sweep point, and the mutation that removes network isolation being caught. A temporal proof of deadlock freedom for the whole mesh was not attempted.</li>
+<li><b>The whole-router formal proofs are bounded</b> (12 cycles). They cover filling and draining every 2-deep buffer several times and any input sequence within that window, but they are not unbounded proofs of the credit protocol.</li>
+<li><b>Traffic is synthetic.</b> The patterns are standard and adversarial by construction, but no real workload trace was run.</li>
+<li><b>Only one compromised tile</b> is modeled, with a defined set of three attacks. A cleverer attack outside the threat model is not covered.</li>
+<li><b>Single-flit packets.</b> Every guarantee is stated for them. Multi-flit packets add per-VC state and new hazards that none of these checks exercises.</li>
+<li><b>Pre-layout timing.</b> Critical paths exclude wires, clock-to-q and setup, and one process corner.</li>
+</ul>

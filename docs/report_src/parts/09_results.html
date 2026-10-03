@@ -1,0 +1,59 @@
+<h1 id="results">Results ledger</h1>
+<p>Chapter 5 presents each result where it was found. This chapter gathers them by question, shows what each feature costs, and, importantly, ties every headline number to the file that holds its data and the command that regenerates it.</p>
+
+<h2 id="r-ledger">Where every headline number comes from</h2>
+<table class="tight fixed">
+<thead><tr><th style="width:24%">Claim</th><th style="width:15%">Value</th><th style="width:33%">Data file</th><th>Regenerate with</th></tr></thead>
+<tbody>
+<tr><td>Uniform saturation of the single-queue router</td><td>0.756</td><td><code>m4_verification/results/latency_sweep.csv</code></td><td><code>tools/sweep.sh</code> (M4)</td></tr>
+<tr><td>Doubling buffer depth</td><td>0.811 (+7%)</td><td><code>m4_verification/results/latency_sweep_depth8.csv</code></td><td><code>DEPTH=8 PATTERNS=0 tools/sweep.sh</code></td></tr>
+<tr><td>Throughput bounds by pattern</td><td>1.00, 0.44, 0.73, 0.36</td><td>model in <code>m4_verification/tools/theory_check.py</code></td><td><code>python tools/theory_check.py</code></td></tr>
+<tr><td>VC router peak, uniform</td><td>0.905</td><td><code>m5_virtual_networks/results/vc_sweep.csv</code></td><td><code>tools/sweep.sh</code> (M5)</td></tr>
+<tr><td>Other patterns versus M4's router</td><td>table in 5.5</td><td><code>m5_virtual_networks/results/vc_patterns.csv</code></td><td><code>tools/sweep.sh</code></td></tr>
+<tr><td>Protocol deadlock grid</td><td>8/8 shared; 0/8 VNs</td><td><code>m5_virtual_networks/results/deadlock_demo.csv</code></td><td><code>tools/deadlock_demo.sh</code></td></tr>
+<tr><td>M5 reproduces M4</td><td>80 / 80 identical</td><td><code>m5_virtual_networks/results/equivalence_1x1x4.csv</code></td><td><code>tools/equivalence_check.sh</code></td></tr>
+<tr><td>Spoofing and hopping matrix</td><td>tables in 5.6</td><td><code>m6_security/results/attack_protocol.csv</code></td><td><code>tools/attack_matrix.sh</code></td></tr>
+<tr><td>Black-hole matrix</td><td>tables in 5.6</td><td><code>m6_security/results/attack_blackhole.csv</code></td><td><code>tools/attack_matrix.sh</code></td></tr>
+<tr><td>Watchdog trade-off</td><td>limit 256; longest honest stall 75</td><td><code>m6_security/results/watchdog_study.csv</code></td><td><code>tools/watchdog_study.sh</code></td></tr>
+<tr><td>Security leaves honest traffic unchanged</td><td>288 / 288 identical</td><td><code>m6_security/results/equiv_*.csv</code>, <code>m8_pipeline/results/equiv_*.csv</code></td><td><code>tools/equivalence_check.sh</code></td></tr>
+<tr><td>Area and critical path, whole mesh</td><td>tables in 5.8, App. B</td><td><code>m8_pipeline/results/synth*.csv</code></td><td><code>tools/synth.sh</code> (M8)</td></tr>
+<tr><td>Two-stage sweeps</td><td>0.901, 0.737, ...</td><td><code>m8_pipeline/results/sweep_pipe.csv</code></td><td><code>PIPE=1 tools/sweep.sh</code></td></tr>
+<tr><td>Clock-target chart</td><td>Figure 5.9</td><td><code>m8_pipeline/results/clock_study.png</code></td><td><code>python tools/plot_clock.py</code></td></tr>
+<tr><td>4&times;4 mesh</td><td>Figure 5.10</td><td><code>m8_pipeline/results/sweep_4x4_pipe.csv</code></td><td><code>tools/mesh_scaling.sh</code></td></tr>
+<tr><td>Formal proofs</td><td>20 proofs, 4 controls</td><td><code>m8_pipeline/formal/</code> (run directories are regenerated)</td><td><code>tools/formal.sh</code></td></tr>
+<tr><td>Replay data</td><td>5 simulations, ~10,700 handoffs</td><td><code>visualizer/data/</code></td><td><code>visualizer/tools/make_scenarios.sh</code></td></tr>
+<tr><td>Whole regression</td><td>18 / 18</td><td><code>regress_logs/</code></td><td><code>./regress.sh --full</code></td></tr>
+</tbody></table>
+<p>The figures in this report are drawn from these same CSV files by <code>docs/report_src/make_figures.py</code>, except Figures 5.1, 5.2 and 5.9, which are the milestones' own plots.</p>
+
+<h2 id="r-cost">What each feature costs</h2>
+<p>All differences are measured on the whole 3&times;3 mesh (sky130, typical corner, pre-layout). Throughput is peak uniform accepted load. Critical-path differences under about 0.5 ns are within synthesis noise (logically equivalent designs map up to about 0.5 ns apart).</p>
+<table>
+<thead><tr><th style="width:36%">Change</th><th class="num">Area per router</th><th class="num">Critical path</th><th class="num">Peak throughput</th><th class="num">Latency</th></tr></thead>
+<tbody>
+<tr><td>Deeper buffers: 1 VC &times; 4 to 1 VC &times; 8</td><td class="num">+84%</td><td class="num">+28%</td><td class="num">+7%</td><td class="num">same</td></tr>
+<tr><td>Virtual channels: 1 VC &times; 4 to 4 VCs &times; 2, 1-pass (twice the storage per input)</td><td class="num">+104%</td><td class="num">+56%</td><td class="num">+9%</td><td class="num">same</td></tr>
+<tr><td>Second allocation pass: 1-pass to 2-pass, 4 VCs &times; 2</td><td class="num">+4%</td><td class="num">+41%</td><td class="num">+10%</td><td class="num">same</td></tr>
+<tr><td>Two-stage hop, simple router</td><td class="num">+15%</td><td class="num">&minus;16%</td><td class="num">&minus;2.5%</td><td class="num">&times;2</td></tr>
+<tr><td>Two-stage hop, VC router with two passes</td><td class="num">+7%</td><td class="num">&minus;8%</td><td class="num">&minus;0.4%</td><td class="num">&times;2</td></tr>
+<tr><td>Security layer (same configuration, two-stage)</td><td class="num">&minus;4%</td><td class="num">&minus;5% (noise)</td><td class="num">unchanged</td><td class="num">unchanged</td></tr>
+<tr><td>Three virtual networks (3 VNs &times; 1 VC &times; 4, secure, versus 1 VC &times; 4)</td><td class="num">&times;2.7</td><td class="num">+48%</td><td class="num">n/a</td><td class="num">same</td></tr>
+</tbody></table>
+<p>Read together: buffers and VCs buy bandwidth and cost area almost in proportion; the second allocation pass is nearly free in area but expensive in clock period; pipelining trades latency for clock period and helps the simple router most; security is free. Virtual networks are a correctness requirement for the coherence protocol and cost roughly the storage of the extra classes.</p>
+
+<h2 id="r-questions">The four questions, answered</h2>
+<table>
+<thead><tr><th style="width:21%">Question</th><th>Answer, with the evidence that carries it</th></tr></thead>
+<tbody>
+<tr><td><b>Performance.</b> Where does a simple router lose bandwidth, and what fixes it?</td><td>It loses it to head-of-line blocking: uniform traffic saturates at 75% of what the wiring allows while the busiest channel is only 56% utilized, and doubling the buffers gains 7%. Four VCs with a two-pass allocator reach 0.905 at equal storage (+12% over one deep queue). Neither change works alone.</td></tr>
+<tr><td><b>Correctness.</b> What breaks when message types share buffers?</td><td>The coherence protocol deadlocks, with no routing cycle involved: 8 of 8 runs at 16 outstanding transactions per tile, and three times the buffers only moves the cliff to 32. One virtual network per class removes it (0 of 48 runs), by the backward argument RSP, then SNP, then REQ.</td></tr>
+<tr><td><b>Trust.</b> What can one bad tile do, and where is it stopped?</td><td>It can impersonate another tile (8 of 8 runs breached), deadlock the whole fabric by hopping networks (8 of 8), or freeze unrelated traffic by refusing deliveries (victims at 0.022 of the 0.178 they offer, with 128 flits stuck). Three small mechanisms at the local port stop all three with zero victim packets lost, change nothing for honest traffic across 288 runs, and cost no area.</td></tr>
+<tr><td><b>Implementation.</b> What does each feature cost, and what should be built?</td><td>See the table above. At a clock under about 4 ns build the pipelined simple router (0.221 flits per node per ns); at about 8 ns or slower build the pipelined 4-VC two-pass router (+12 to +22% bandwidth). The coherence protocol needs virtual networks at any clock.</td></tr>
+</tbody></table>
+
+<h2 id="r-honest">Where the evidence is weakest</h2>
+<ul>
+<li>The decision rule between routers rests on pre-layout critical paths at one corner. Wire delay would lengthen the cross-link path and favor the pipelined designs, so the rule's direction is robust but its crossover clock periods are not sign-off numbers.</li>
+<li>The recommendation at 5.35 to 7.94 ns is within noise (+2%) and is resolved on latency, not bandwidth.</li>
+<li>The 4&times;4 study covers two router configurations and one traffic pattern for throughput. The protocol and security checks on 4&times;4 are single configurations.</li>
+</ul>

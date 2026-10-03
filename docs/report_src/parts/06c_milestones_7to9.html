@@ -1,0 +1,220 @@
+<h2 id="m7">M7: synthesis, timing and formal verification</h2>
+<div class="box warn"><div class="t">Correction carried by M7's own write-up</div>
+<p>M7 synthesized <b>one router alone</b> and reported its longest path as the critical path. M8 later showed this overstated the timing fixes by about a factor of two (Section 5.8). The behavioral claims (equivalence, formal, mutation) are unaffected. This section reports M7's findings with the corrected whole-mesh timing, and M7's original single-router table is kept, labeled, in Appendix B.</p></div>
+
+<h3>Objective</h3>
+<p>M1 to M6 lived entirely in simulation. M7 puts the design through the tools an RTL team ships with: synthesis onto a real cell library, formal verification, and lint. It asks what each feature costs in silicon, and fixes what synthesis finds.</p>
+
+<h3>Setup</h3>
+<ul>
+<li><b>Synthesis:</b> Yosys 0.69 with the slang SystemVerilog frontend, mapped to SkyWater sky130_fd_sc_hd at the typical corner (25 &deg;C, 1.8 V), with ABC static timing. Everything simulation-only is wrapped in <code>`ifndef SYNTHESIS</code>, so synthesis sees exactly the hardware.</li>
+<li><b>Formal:</b> SymbiYosys, with arbiter properties proved by k-induction and the router's credit protocol by bounded model checking.</li>
+<li><b>Lint:</b> Verilator 5.032 with <code>-Wall</code>, on two views (synthesizable, and with checkers) across several configurations, with zero warnings required.</li>
+</ul>
+
+<h3>What synthesis showed</h3>
+<div class="box"><div class="t">Finding 1: buffers are the router</div>
+<p>63 to 71% of a router's area is flip-flops, almost all of it FIFO storage (5 ports &times; VCs &times; depth &times; 37 bits). Doubling the storage roughly doubles the router. In whole-mesh numbers a single 4-flit queue per input is 25,612 &micro;m&sup2; per router and an 8-flit queue is 47,175.</p></div>
+<div class="box"><div class="t">Finding 2: in a single-cycle router, VCs do not pay per nanosecond</div>
+<p>The allocator lengthens the critical path faster than it raises throughput per cycle. On the whole mesh, four VCs with one pass cost +56% in clock period (3.95 to 6.16 ns) for +9% throughput per cycle; the second pass costs another +41% (to 8.66 ns) for another +10%. In flits per node per nanosecond, M5's best router delivers about <b>half</b> of the simple router's. Real VC routers pipeline allocation for this reason, which is what M8 does.</p></div>
+<div class="box good"><div class="t">Finding 3: security costs no area</div>
+<p>The secure router is smaller than the unprotected one: 3.4% smaller in M7's single-router run and 3.7% smaller in M8's whole-mesh run (58,078 to 55,903 &micro;m&sup2; per router, same configuration). Source stamping turns the local port's 8 source bits into constants, so synthesis removes those flops from every local-port buffer slot. That more than pays for the watchdog counters. The other checks sit on the push path and in eligibility logic, off the critical path.</p></div>
+
+<h3>Two timing fixes</h3>
+<p>The first synthesis run reported every critical path the same way: starting at an input FIFO's read pointer and running through the router in one cycle, through the read mux, route compute, eligibility, both arbiter stages (twice with two passes), the VC mux and the crossbar. Two pieces of that path were doing work that did not need to be there.</p>
+<table class="tight">
+<thead><tr><th style="width:21%">Fix</th><th>Before</th><th>After</th></tr></thead>
+<tbody>
+<tr><td><b>Route-at-write</b></td><td>Each input VC computed the XY route of its head flit, a 4-bit compare chain sitting right after the FIFO read mux, on every path.</td><td>The router computes the route once, when the flit is written, and stores it as 3 extra bits beside the flit (a side-band on the FIFO). At the head the route is simply read. Same cycle, same decisions, fewer comparators (one per input port, not per VC), for 3 bits of storage per slot.</td></tr>
+<tr><td><b>Masked round-robin arbiter</b></td><td>M1's arbiter found the winner with a loop of variable rotations, a chain of barrel shifters, and a router has 15 arbiters.</td><td>The textbook form: a thermometer mask of positions at or above the pointer, grant the lowest set bit of (requests AND mask) if any, else the lowest set bit of requests. The lowest set bit of <i>x</i> is <i>x AND (NOT x + 1)</i>.</td></tr>
+</tbody></table>
+<p>A third change came from a synthesis warning: each FIFO's storage array shared the pointers' asynchronous-reset block without being reset, which asks for reset flops that never receive a reset value. Storage now has its own block with no reset, because an empty FIFO's contents are irrelevant, and non-reset flops are smaller.</p>
+<p>On the whole mesh the two fixes cut the critical path <b>17%</b> for the simple router (4.95 to 4.13 ns) and <b>13%</b> for the VC router (10.10 to 8.79 ns). The mesh as a whole also shrank by about half in area after M7's changes (per router, simple: 52,505 to 25,693 &micro;m&sup2;; VC two-pass: 98,964 to 54,575). The largest contributor is very likely the reset-free storage, since flops with reset are larger, but the project did not isolate it, so this is an observation and not an attributed result.</p>
+<p><b>None of it changed behavior, and that is proved:</b> all 288 honest-traffic runs reproduce M4's and M5's results digit for digit; all 56 attack runs reproduce M6's line for line; and the new arbiter is formally equivalent to the old one (next).</p>
+
+<h3>Formal verification</h3>
+<p>Simulation checks the traffic that ran. Formal verification checks every possible input sequence: the solver either finds a counterexample or proves none exists.</p>
+<table class="tight">
+<thead><tr><th style="width:23%">Proof</th><th>What is established, and how</th></tr></thead>
+<tbody>
+<tr><td><b>Arbiter equivalence</b>, N = 1 to 8</td><td>The new arbiter and the original run side by side from reset on free inputs and must give identical grants every cycle. The only state is the priority pointer and every reachable pointer value is reached one cycle after reset, so bounded checking is a complete proof here. A first attempt with a register-cut equivalence tool "failed": it considered pointer values that can never occur, on which the two legitimately differ. Choosing the right proof matters.</td></tr>
+<tr><td><b>Arbiter properties</b>, N = 1 to 8</td><td>Concurrent assertions (the construct Icarus cannot parse), proved by k-induction, which is unbounded. P1: a grant only goes to a requester. P2: at most one grant. P3: if anyone requests, someone is granted. P4: the same three for pass 2. <b>P5, fairness:</b> a requester that keeps asking is granted within N cycles, now proved for every request pattern and not only the traffic that ran.</td></tr>
+<tr><td><b>Router credit protocol</b></td><td>One router sits in a harness that models its neighbors as assumptions (an upstream sender only sends with a credit; a downstream receiver only returns a credit for a flit it holds). The router's obligations are assertions. <b>C1:</b> never send into a full buffer. <b>C2:</b> never return a credit it does not owe. <b>C3:</b> every flit leaves on a real VC. <b>C4:</b> every flit leaves in its own class's network. Bounded to 12 cycles, enough to fill and drain every 2-deep buffer several times, in two configurations.</td></tr>
+</tbody></table>
+<div class="box"><div class="t">The trust boundary, made explicit by the solver</div>
+<p>The first run of C4 failed. The solver sent a request-class flit into the response VC over the <b>west link</b> and the router forwarded it. The router was not wrong: the harness had not said that neighboring <i>routers</i> keep network discipline, which is M6's trust model, where links are trusted and only the local port faces an untrusted tile. Adding it as an assumption on the four link ports, and deliberately <i>not</i> on the local port, made C4 pass. The proof now establishes exactly what M6 claimed: no flit leaves outside its network, even when the local tile sends anything at all.</p></div>
+<table class="tight">
+<caption>Negative controls: each proof must fail on a planted bug. A proof that cannot fail proves nothing.</caption>
+<thead><tr><th>Planted bug</th><th>Proof</th><th>Result</th></tr></thead>
+<tbody>
+<tr><td>Priority mask off by one</td><td>Arbiter equivalence</td><td class="pass">FAIL, with a counterexample trace (as required)</td></tr>
+<tr><td>Pointer never advances (fixed priority)</td><td>Fairness P5</td><td class="pass">FAIL: requester 4 starves (as required)</td></tr>
+<tr><td>Credits reset one too high</td><td>Credit protocol C1 and C2</td><td class="pass">FAIL (as required)</td></tr>
+<tr><td>VC allocation ignores the network</td><td>Network isolation C4</td><td class="pass">FAIL (as required)</td></tr>
+</tbody></table>
+<h3>Lint</h3>
+<p>Verilator reports zero warnings on both views. Two global waivers were forced by the toolchain (file-scope package imports, because module-header imports crash this Icarus build, and a file-naming style rule). Every other waiver sits inline next to its line with the reason: an unused FIFO-full flag that credits make redundant, the tile's source bits discarded when stamping, constant compares on edge routers, an unused pass-2 port, and package constants used only by testbenches. Real width mismatches were fixed with typed constants, and two encoders written as chained ORs, which Verilator flagged as false combinational loops, became flat one-hot-to-binary encoders.</p>
+
+<h2 id="m8">M8: pipelining, and which router to build</h2>
+<h3>Objective</h3>
+<p>M7 found that a single-cycle VC router loses per nanosecond to the simple router, and named the fix: split the hop into stages. M8 builds it, re-measures timing honestly, and turns the data into a decision rule.</p>
+
+<h3>The two-stage router</h3>
+<p>A <code>PIPE</code> parameter selects the hop structure. <code>PIPE=0</code> builds M7's router unchanged, and the equivalence check confirms it still reproduces M4's and M5's results exactly.</p>
+<figure>
+<svg viewBox="0 0 560 210" role="img" aria-label="A flit crossing three routers: three cycles with one stage per hop, six cycles with two stages per hop">
+  <g class="t-s t-mute" text-anchor="middle"><text x="140" y="14">cycle 1</text><text x="200" y="14">2</text><text x="260" y="14">3</text><text x="320" y="14">4</text><text x="380" y="14">5</text><text x="440" y="14">6</text></g>
+  <g class="ln-d"><path d="M170 20V196M230 20V196M290 20V196M350 20V196M410 20V196M470 20V196"/></g>
+  <text x="8" y="48" class="t-b">PIPE=0</text><text x="8" y="62" class="t-s t-mute">one cycle per hop</text>
+  <g class="t-m" text-anchor="middle">
+    <rect class="bx-a" x="112" y="30" width="56" height="28" rx="3"/><text x="140" y="49">router 1</text>
+    <rect class="bx-a" x="172" y="30" width="56" height="28" rx="3"/><text x="200" y="49">router 2</text>
+    <rect class="bx-a" x="232" y="30" width="56" height="28" rx="3"/><text x="260" y="49">router 3</text>
+  </g>
+  <text x="296" y="49" class="t-s t-acc">delivered after 3 cycles</text>
+  <text x="8" y="116" class="t-b">PIPE=1</text><text x="8" y="130" class="t-s t-mute">two stages per hop</text>
+  <g class="t-s" text-anchor="middle">
+    <rect class="bx-a" x="112" y="98" width="56" height="26" rx="3"/><text x="140" y="115">R1 allocate</text>
+    <rect class="bx-o" x="172" y="98" width="56" height="26" rx="3"/><text x="200" y="115">R1 traverse</text>
+    <rect class="bx-a" x="232" y="98" width="56" height="26" rx="3"/><text x="260" y="115">R2 allocate</text>
+    <rect class="bx-o" x="292" y="98" width="56" height="26" rx="3"/><text x="320" y="115">R2 traverse</text>
+    <rect class="bx-a" x="352" y="98" width="56" height="26" rx="3"/><text x="380" y="115">R3 allocate</text>
+    <rect class="bx-o" x="412" y="98" width="56" height="26" rx="3"/><text x="440" y="115">R3 traverse</text>
+  </g>
+  <text x="468" y="142" text-anchor="end" class="t-s t-acc">delivered after 6 cycles</text>
+  <g><rect class="bx-a" x="112" y="158" width="14" height="12" rx="2"/><rect class="bx-o" x="112" y="180" width="14" height="12" rx="2"/></g>
+  <text x="132" y="168" class="t-s">stage 1: credit check, route read, VC and switch allocation, VC mux into a register</text>
+  <text x="132" y="190" class="t-s">stage 2: crossbar and link, into the next router's FIFO</text>
+</svg>
+<figcaption><b>Figure 5.6.</b> One flit crossing three routers, the average path under uniform traffic on 3&times;3. Splitting the hop adds exactly one cycle per router, so zero-load latency goes from 3.0 to 6.0 cycles, which the sweep measures exactly.</figcaption>
+</figure>
+<ul>
+<li><b>Every state update happens in stage 1:</b> the pop (and credit return upstream), the output VC's credit charge, and the arbiter pointers. So each allocation sees exactly the state the previous one left. There is no stale-request hazard and no replay logic, which is why the change stays small and verifiable.</li>
+<li><b>A longer credit loop.</b> A credit comes back three cycles after its flit was allocated, not two. A single VC with 2-deep buffers can then use only two thirds of a link. Directed test T6 caught exactly this (below).</li>
+<li><b>The watchdog's discard flag travels with its flit,</b> so the black-hole defense still identifies every discarded flit in both modes.</li>
+</ul>
+
+<h3>Measuring timing honestly</h3>
+<p>A hop does not end at a router's output port. It ends in the <i>next</i> router's input buffer, in the same clock cycle. Synthesized alone, a router's ports are free endpoints and that cross-link path is cut in half. M8's synthesis script flattens the whole 3&times;3 mesh, so the only endpoints are the tiles' ports, and reports where the critical path starts and ends. The single-cycle routers' paths now visibly cross a link: they start in one router (a FIFO head or a credit counter) and end in a neighbor's input logic.</p>
+<table class="tight">
+<thead><tr><th>Critical path, M6 RTL to M7 RTL</th><th class="num">One router (M7's method)</th><th class="num">Whole mesh (M8)</th></tr></thead>
+<tbody>
+<tr><td>1 VC &times; 4</td><td class="num">5.45 &rarr; 3.62 ns (&minus;34%)</td><td class="num"><b>4.95 &rarr; 4.13 ns (&minus;17%)</b></td></tr>
+<tr><td>4 VCs &times; 2, 2-pass</td><td class="num">10.56 &rarr; 8.15 ns (&minus;23%)</td><td class="num"><b>10.10 &rarr; 8.79 ns (&minus;13%)</b></td></tr>
+</tbody></table>
+<p>Most of the gap is route-at-write. In a single-cycle router it does not remove the route compare from the cycle; it moves it from the start of the path (this router reading its head) to the end (the next router writing the flit), and the one-router measurement stopped before the end. The arbiter rewrite is the real gain there. In the two-stage router route-at-write does pay, because the compare moves out of the allocation stage, which is now the bottleneck.</p>
+<figure class="narrow">
+<img src="fig/timing_journey.png" alt="Critical path of two routers across M6, M7 and M8">
+<figcaption><b>Figure 5.7.</b> Critical path of the simple and VC routers through the project, whole 3&times;3 mesh, sky130 typical corner, pre-layout.</figcaption>
+</figure>
+
+<h3>Results</h3>
+<p>Peak accepted throughput is from the uniform-traffic sweeps (single-cycle: M5's 240 runs; two-stage: 80 runs, all correct). Critical paths are whole-mesh.</p>
+<table>
+<thead><tr><th>Router</th><th class="num">Stages</th><th class="num">Critical path</th><th class="num">Peak (flits/node/cycle)</th><th class="num">Flits/node/ns</th><th class="num">Zero-load latency</th></tr></thead>
+<tbody>
+<tr><td>1 VC &times; 4 (M4)</td><td class="num">1</td><td class="num">3.95 ns</td><td class="num">0.756</td><td class="num">0.191</td><td class="num">3.0 cycles</td></tr>
+<tr class="hl"><td>1 VC &times; 4</td><td class="num">2</td><td class="num">3.33 ns</td><td class="num">0.737</td><td class="num"><b>0.221</b></td><td class="num">6.0</td></tr>
+<tr><td>1 VC &times; 8</td><td class="num">1</td><td class="num">5.06 ns</td><td class="num">0.811</td><td class="num">0.160</td><td class="num">3.0</td></tr>
+<tr><td>1 VC &times; 8</td><td class="num">2</td><td class="num">3.97 ns</td><td class="num">0.804</td><td class="num">0.203</td><td class="num">6.0</td></tr>
+<tr><td>4 VCs &times; 2, 1-pass</td><td class="num">1</td><td class="num">6.16 ns</td><td class="num">0.824</td><td class="num">0.134</td><td class="num">3.0</td></tr>
+<tr><td>4 VCs &times; 2, 1-pass</td><td class="num">2</td><td class="num">5.35 ns</td><td class="num">0.820</td><td class="num">0.153</td><td class="num">6.0</td></tr>
+<tr><td>4 VCs &times; 2, 2-pass (M5's best)</td><td class="num">1</td><td class="num">8.66 ns</td><td class="num">0.905</td><td class="num">0.105</td><td class="num">3.0</td></tr>
+<tr><td>4 VCs &times; 2, 2-pass</td><td class="num">2</td><td class="num">7.94 ns</td><td class="num">0.901</td><td class="num">0.113</td><td class="num">6.0</td></tr>
+<tr><td>3 VNs &times; 1 VC &times; 4, secure (coherence router)</td><td class="num">1</td><td class="num">5.85 ns</td><td class="num">n/a</td><td class="num">n/a</td><td class="num">n/a</td></tr>
+<tr><td>3 VNs &times; 1 VC &times; 4, secure</td><td class="num">2</td><td class="num">5.32 ns</td><td class="num">n/a</td><td class="num">n/a</td><td class="num">n/a</td></tr>
+</tbody></table>
+<figure>
+<img src="fig/area_timing.png" alt="Area per router and critical path for each configuration">
+<figcaption><b>Figure 5.8.</b> What each feature costs, whole 3&times;3 mesh. Throughput per cycle is nearly unchanged by pipelining (within 3%), so the two-stage rows trade a cycle of latency for a shorter clock period, with a modest area increase for the stage register.</figcaption>
+</figure>
+<p>Pipelining helps the simple router most (3.95 to 3.33 ns, &minus;16%) and the VC router least (8.66 to 7.94 ns, &minus;8%). The critical path after pipelining, for the VC routers, starts at a credit counter and ends at the VC mux that feeds the stage register: credit check, eligibility, input arbiter, output arbiter, the same two again for pass 2, winning VC, VC mux. That is allocation itself, which a two-stage split cannot touch.</p>
+
+<h3>Which router to build</h3>
+<p>A chip's clock is set by its cores and caches; the router has to meet it. For each design, if its critical path fits the clock period it delivers its peak throughput divided by that period, and if not it cannot be used. Plotting that for every period shows which design wins where.</p>
+<figure>
+<img src="fig/m8_clock_study.png" alt="Delivered bandwidth versus the clock period the router must meet, for four routers">
+<figcaption><b>Figure 5.9.</b> Delivered bandwidth against the clock period the router must meet. Each line starts where that router first meets timing (the dot). The highest line that exists at a given clock is the design to build. From 7.94 ns on, the two-stage VC router is highest.</figcaption>
+</figure>
+<table>
+<thead><tr><th style="width:17%">Clock period to meet</th><th style="width:27%">Best design</th><th class="num" style="width:13%">Bandwidth</th><th>Why</th></tr></thead>
+<tbody>
+<tr><td>3.33 to 3.95 ns</td><td>1 VC &times; 4, two-stage</td><td class="num">0.737</td><td>The only design that fits</td></tr>
+<tr><td>3.97 to 5.35 ns</td><td>1 VC &times; 8, two-stage</td><td class="num">0.804</td><td>Deeper buffers beat VCs once they fit: +9% over 1 VC &times; 4</td></tr>
+<tr><td>5.35 to 7.94 ns</td><td>4 VCs &times; 2, 1-pass, two-stage</td><td class="num">0.820</td><td>Only +2% over 1 VC &times; 8, which is within noise. The 1 VC &times; 8 single-cycle router (0.811, fits from 5.06 ns) has half the latency, so it is the practical pick.</td></tr>
+<tr><td>7.94 ns and slower</td><td>4 VCs &times; 2, 2-pass, two-stage</td><td class="num">0.901</td><td>Fits at last: +12% over 1 VC &times; 8, +22% over 1 VC &times; 4</td></tr>
+<tr><td>8.66 ns and slower</td><td>4 VCs &times; 2, 2-pass, single-cycle</td><td class="num">0.905</td><td>Same bandwidth, half the hop latency</td></tr>
+</tbody></table>
+<p>When latency matters as much as bandwidth, the single-cycle variant of whichever design fits is the better pick: half the zero-load latency for a few percent of bandwidth. Virtual <i>networks</i> are not part of this trade. Coherence needs them for deadlock freedom at any clock, and their cost shows in the 3-VN rows above.</p>
+<p><b>What would change the answer.</b> The data says how much each next step must deliver. To beat the two-stage 1 VC &times; 8 router's 0.203 flits per node per ns, the 4 VC two-pass router would need a clock period under about 4.4 ns, and the one-pass version about 4.0 ns: roughly half of today's numbers. The known routes are speculative switch allocation, allocation split across two cycles with replay, and a wavefront allocator. Each is a project on its own.</p>
+
+<h3>One size up: the 4&times;4 mesh</h3>
+<p>Everything above was measured on 3&times;3. The RTL has no 3&times;3 assumption: mesh size is a parameter and coordinates are 4 bits. The testbenches take the mesh size as a macro (default 3), and a study script reruns the key checks on 4&times;4 with two-stage routers. It compares the sweeps with a first-principles model: zero-load latency is (average hops + 1) routers &times; 2 stages, and the saturation bound comes from the busiest channel's load.</p>
+<figure>
+<img src="fig/mesh_scaling.png" alt="Accepted against offered load on 3x3 and 4x4 meshes for two routers">
+<figcaption><b>Figure 5.10.</b> A larger mesh saturates lower, and virtual channels matter more. Left: the simple router. Right: the VC router with two passes.</figcaption>
+</figure>
+<table>
+<thead><tr><th>Router</th><th>Mesh</th><th class="num">Latency at 0.05 load (model)</th><th class="num">Peak accepted</th><th class="num">Bound</th><th class="num">% of bound</th></tr></thead>
+<tbody>
+<tr><td>1 VC &times; 4</td><td>3&times;3</td><td class="num">5.98 (6.00)</td><td class="num">0.737</td><td class="num">1.000</td><td class="num">74%</td></tr>
+<tr><td>1 VC &times; 4</td><td>4&times;4</td><td class="num">7.46 (7.33)</td><td class="num">0.611</td><td class="num">0.938</td><td class="num">65%</td></tr>
+<tr><td>4 VCs &times; 2, 2-pass</td><td>3&times;3</td><td class="num">5.98 (6.00)</td><td class="num">0.901</td><td class="num">1.000</td><td class="num">90%</td></tr>
+<tr><td>4 VCs &times; 2, 2-pass</td><td>4&times;4</td><td class="num">7.46 (7.33)</td><td class="num">0.798</td><td class="num">0.938</td><td class="num">85%</td></tr>
+</tbody></table>
+<ul>
+<li><b>Latency grows exactly as the hop count says.</b> Every extra router costs two cycles and nothing else.</li>
+<li><b>Virtual channels matter more as the mesh grows.</b> On 4&times;4 the simple router reaches only 65% of its bound, because longer paths put more flits behind a blocked head. The VC router's advantage rises from +22% on 3&times;3 to <b>+31%</b>.</li>
+<li><b>Protocol and security results hold on 4&times;4.</b> One network per class, hardened: 8 runs (4 seeds at 16 and 64 outstanding) each completed 13,000 to 14,000 transactions with no deadlock and no false alarm. One shared network deadlocks at cycle 543 with 252 transactions stuck. A black hole at interior tile 5: the unprotected mesh lets victims through at 0.013 of the 0.187 they offer; the hardened mesh quarantines at cycle 306, delivers all 5,970 measured victim packets, and drains.</li>
+<li>A 4&times;2 mesh also passes uniform, bit-complement and hotspot. Transpose is refused on a non-square mesh, because (x,y) to (y,x) would leave the grid; before that guard existed the mesh's own edge assertion caught those flits as misroutes.</li>
+</ul>
+
+<h3>Verification of the two-stage router</h3>
+<table class="tight">
+<thead><tr><th style="width:36%">Check</th><th>PIPE=0</th><th>PIPE=1</th></tr></thead>
+<tbody>
+<tr><td>Directed tests (28)</td><td>28 / 28</td><td>28 / 28</td></tr>
+<tr><td>Equivalence with M4 and M5, 288 runs</td><td>identical</td><td>latency differs by design</td></tr>
+<tr><td>Throughput sweeps, uniform</td><td>M5's 240 points</td><td>80 points, all correct</td></tr>
+<tr><td>Attack matrix</td><td>identical to M6</td><td>every attack contained</td></tr>
+<tr><td>Mutation test, 11 mutants &times; 6 runs</td><td>all caught</td><td>all caught</td></tr>
+<tr><td>Formal credit protocol C1 to C4</td><td>proved (bounded)</td><td>proved (bounded), two configurations</td></tr>
+<tr><td>Lint</td><td>0 warnings</td><td>0 warnings</td></tr>
+<tr><td><code>run.sh</code></td><td colspan="2">15 / 15 steps, both modes</td></tr>
+</tbody></table>
+<div class="box"><div class="t">One test had to change</div>
+<p>Directed test T6 (fairness) required each of four inputs to win at least 9 grants in a fixed window. With two stages the credit loop is three cycles and a 2-deep buffer accepts only two flits per three cycles, so total throughput dropped and every input won 8 or 9. Fairness itself was intact: shares were within one of each other. The test had been asserting an absolute count, a throughput number, when the property it names is fairness. It now checks what it claims: even shares, nobody starved.</p></div>
+
+<h2 id="m9">The replay visualizer</h2>
+<h3>Purpose</h3>
+<p>Numbers and tables show that the design works. A replay shows how. The visualizer plays back real simulations of the final router on the 3&times;3 mesh, one clock cycle at a time, in three scenarios. Nothing on the page is animated by a model of the router: every flit position comes from a waveform the RTL produced in Icarus.</p>
+<h3>How the data is made and checked</h3>
+<div class="flow">
+<span><b>Simulate</b>M8 RTL with the protocol and sweep testbenches; a run is used only if its own PASS line appears</span><i>&rarr;</i>
+<span><b>Convert</b>each router's ports and every FIFO's contents, sampled just before each rising edge</span><i>&rarr;</i>
+<span><b>Check</b>every handoff, route, network and depth against the router's rules</span><i>&rarr;</i>
+<span><b>Bundle</b>one self-contained HTML file that opens from disk</span>
+</div>
+<p>The checker rejects the data unless: a flit sent on a port at cycle <i>c</i> sits in the neighbor's opposite input, same VC, at cycle <i>c</i>+1 (about 10,700 handoffs across the five replays); every flit is ejected at its destination tile; every hop follows XY order and complete routes are minimal; no flit ever sits in a VC outside its class's network; and no FIFO exceeds its depth.</p>
+<p>Building it exposed two decoder bugs, both caught by the checker and not by eye. VCD vectors drop leading zeros, so signal widths must come from the declarations and not from the value strings. And FIFO storage has no reset, so unwritten slots hold X, and decoding a whole buffer at once let a single X slot hide every valid flit; each slot is now decoded on its own.</p>
+<h3>The three scenarios</h3>
+<table class="tight">
+<thead><tr><th style="width:21%">Scenario</th><th>Left</th><th>Right</th><th>What to watch</th></tr></thead>
+<tbody>
+<tr><td>Uniform traffic</td><td colspan="2">4 VCs &times; 2, 2-pass, hardened, two-stage, 0.40 flits per node per cycle</td><td>XY routes, VCs passing each other, about 6.5-cycle latency</td></tr>
+<tr><td>Protocol deadlock</td><td>All classes share one network</td><td>One network per class</td><td>Left freezes for good after cycle 211; right keeps completing transactions</td></tr>
+<tr><td>Black-hole attack</td><td>Unprotected; tile 4 stops consuming at cycle 1000</td><td>Hardened</td><td>Left backs up permanently; right quarantines tile 4 at cycle 1302 and recovers</td></tr>
+</tbody></table>
+<figure class="narrow">
+<img src="fig/replay_uniform.png" alt="Screenshot of the replay page, uniform traffic scenario">
+<figcaption><b>Figure 5.11.</b> Uniform traffic at cycle 1040. Colored squares are buffered flits, dots on lanes are flits on links, the dashed box in each router is its tile's injection buffers. Clicking a flit lists its injection, every hop with cycle and VC, and its delivery.</figcaption>
+</figure>
+<figure>
+<img src="fig/replay_deadlock.png" alt="Screenshot of the replay page, protocol deadlock scenario">
+<figcaption><b>Figure 5.12.</b> The same traffic on shared buffers (left) and one network per class (right), at cycle 260. The left mesh stopped moving at cycle 211 with 72 flits stuck; the right has completed 563 transactions.</figcaption>
+</figure>
+<figure>
+<img src="fig/replay_blackhole.png" alt="Screenshot of the replay page, black-hole scenario">
+<figcaption><b>Figure 5.13.</b> The black-hole attack at cycle 1380. Left: tile 4 is a black hole and the blockage persists, with 129 flits in buffers and no discards. Right: the router quarantined tile 4 at cycle 1302 (outlined) and has discarded 64 flits for it, delivering victim traffic again.</figcaption>
+</figure>
+<p>The deadlock pair runs with the watchdog off for the reason given in Section 5.6: a deadlocked honest tile looks identical to a black hole, so with the watchdog on the shared-buffer mesh would quarantine honest tiles. The page opens from disk with no server, supports deep links to a scenario and cycle, and has playback controls, a scrubber, per-flit tracing and tooltips.</p>

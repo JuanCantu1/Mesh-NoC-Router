@@ -1,0 +1,139 @@
+<h1 id="milestones">The milestones</h1>
+<p>This chapter follows the project in order. Each section states the question the milestone answers, what was built, how it was verified, and what it found. The later milestones (M5 to M8) carry the main results and are correspondingly longer.</p>
+
+<h2 id="m1">M1: a single router</h2>
+<h3>Objective</h3>
+<p>Build one correct 5-port router in isolation, before any network exists, and prove it makes the right decision for every kind of packet.</p>
+<h3>Design</h3>
+<ul>
+<li><b>Ports.</b> North, south, east, west and local, numbered 0 to 4. Each has an independent input half and output half.</li>
+<li><b>Packet.</b> One 16-bit flit: 4-bit destination X, 4-bit destination Y, 8-bit payload.</li>
+<li><b>Routing.</b> XY dimension-order routing (Figure 3.2), computed from the flit's destination and the router's own coordinates.</li>
+<li><b>Arbitration.</b> A round-robin arbiter per output port (<code>rr_arbiter.sv</code>), reusable and later carried through every milestone.</li>
+<li><b>Flow control.</b> A valid/ready handshake on every port. The router stores nothing, so a flit that loses arbitration must be held by its sender.</li>
+<li><b>Timing.</b> Purely combinational from input port to output port.</li>
+</ul>
+<h3>Verification</h3>
+<p>A self-checking directed testbench drives one router, parked at mesh position (1,1), through nine packets and 13 checks:</p>
+<table class="tight">
+<thead><tr><th style="width:30%">Scenario</th><th>What it proves</th></tr></thead>
+<tbody>
+<tr><td>Straight through, W&rarr;E and N&rarr;S</td><td>A packet that still needs to move in the dimension it arrived from passes straight through</td></tr>
+<tr><td>Turn, E&rarr;S and W&rarr;N</td><td>A packet whose X is already correct turns to fix Y</td></tr>
+<tr><td>Arrival, to Local</td><td>A packet whose coordinates match is delivered to the local port</td></tr>
+<tr><td>Injection, Local&rarr;E</td><td>The local tile can inject a packet into the mesh</td></tr>
+<tr><td>Contention, N and W to E</td><td>Two inputs wanting one output in the same cycle are serialized fairly, and both arrive intact</td></tr>
+<tr><td>Backpressure</td><td>A packet is held, not dropped or corrupted, while its destination is not ready, and delivered intact when it is</td></tr>
+</tbody></table>
+<h3>Findings</h3>
+<p>The main surprise was the simulator, not the design. Three constructs that are ordinary SystemVerilog crashed or silently misbehaved in this Icarus build: a <code>for</code> loop reading a packed-struct field inside <code>always_comb</code>; a nested loop comparing two loop-indexed array reads; and an output port declared as an unpacked array of structs, which read as <code>x</code> from outside the module. The router uses <code>generate</code> loops and packed arrays instead. Each workaround produces the same hardware as the plain loop. This set the rule for the whole project: write the subset that every tool agrees on.</p>
+
+<h2 id="m2">M2: a full mesh</h2>
+<h3>Objective</h3>
+<p>Show that routers compose: that XY routing, hop by hop, delivers packets across a grid, including turns and contention between packets arriving from different directions.</p>
+<h3>Design</h3>
+<p>M2 changes no router logic. It adds one module, <code>mesh.sv</code>, that instantiates a <code>MESH_W</code> by <code>MESH_H</code> grid of M1 routers and wires each router's N, S, E and W ports to its neighbor's opposite port, using only generate loops and constant slices. Ports on the mesh boundary are tied off: inputs never valid, outputs always ready. Each router's local port is exposed as an array indexed by tile number (y &times; width + x).</p>
+<h3>Verification</h3>
+<table class="tight">
+<thead><tr><th style="width:26%">Scenario</th><th style="width:25%">Path</th><th>What it proves</th></tr></thead>
+<tbody>
+<tr><td>Adjacent hop</td><td>(0,0) &rarr; (1,0)</td><td>Mesh-level wiring between two neighbors</td></tr>
+<tr><td>Straight row, straight column</td><td>(0,1) &rarr; (2,1); (1,0) &rarr; (1,2)</td><td>Two hops in one dimension with no turn</td></tr>
+<tr><td>Corner to corner, both diagonals</td><td>(0,0) &rarr; (2,2); (2,0) &rarr; (0,2)</td><td>A full four-hop path with a turn, in both directions</td></tr>
+<tr><td>Concurrent independent traffic</td><td>(0,0)&rarr;(2,0) and (0,2)&rarr;(2,2)</td><td>Packets on paths that share no router do not interfere</td></tr>
+<tr><td>Cross-router contention</td><td>(1,0)&rarr;(2,0) and (0,0)&rarr;(2,0)</td><td>The round-robin arbiter resolves contention between a locally injected and a just-arrived packet</td></tr>
+</tbody></table>
+<p>The testbench passes 11 of 11 checks.</p>
+<h3>Findings</h3>
+<div class="box warn"><div class="t">Finding</div>
+<p>A packet from one corner to the opposite corner, four hops away, arrives in <b>the same clock cycle it was injected</b>. M1's router has no register between its input and output, so a mesh of them is one long combinational path whose length grows with the mesh's diameter. Functionally this is fine, because XY routing's decisions are what M2 has to prove. Physically it could never meet timing, and no pipelining is possible in it. M3 exists to fix this.</p></div>
+
+<h2 id="m3">M3: credit-based flow control</h2>
+<h3>Objective</h3>
+<p>Replace the valid/ready handshake with the mechanism real interconnects use, so a hop becomes a real, bounded, registered clock cycle.</p>
+<h3>Design</h3>
+<ul>
+<li><b>A FIFO per input port</b> (<code>flit_fifo.sv</code>), a circular buffer of <code>BUFFER_DEPTH</code> slots (default 4). A flit is pushed the cycle it arrives and popped the cycle it is forwarded.</li>
+<li><b>A credit counter per output port</b>, reset to the receiver's buffer depth. A request for an output is only formed if its credit count is above zero, so an output with no credit never appears as a candidate in arbitration at all.</li>
+<li><b>Credit return.</b> Each pop from an input FIFO sends a single-cycle <code>credit_return</code> pulse upstream, replacing the old <code>ready</code> wire (Figure 3.3).</li>
+<li>Routing and arbitration are unchanged from M1 and M2; they now act on the flit at the head of each FIFO.</li>
+</ul>
+<h3>Verification</h3>
+<p>The FIFO has its own unit test first (ordering, full and empty, wraparound, simultaneous push and pop), because bugs are cheaper to find before it is wired in. The router testbench then reruns M1's scenarios on the buffered datapath and adds the scenarios this milestone exists for. It models both ends of a link as real credit-aware parties: the sender refuses to send at zero credits, and the downstream neighbor is an actual bounded FIFO, so credit conservation is enforced by the simulation, not merely asserted.</p>
+<table class="tight">
+<thead><tr><th style="width:24%">Scenario</th><th>What it proves</th></tr></thead>
+<tbody>
+<tr><td>Priming and queue fill</td><td>East's downstream credit is drained first, so later flits genuinely have nowhere to go and must queue</td></tr>
+<tr><td>Buffer-full refusal</td><td>A well-behaved sender at zero credits refuses to send a fifth flit into a full buffer, and nothing is lost by not trying</td></tr>
+<tr><td>Ordered drain</td><td>When downstream resumes, the four queued flits emerge in arrival order with unchanged data</td></tr>
+<tr class="hl"><td>No credit leak</td><td>After a full fill and drain, the sender's credit count returns to exactly <code>BUFFER_DEPTH</code>: every send was matched by exactly one credit</td></tr>
+</tbody></table>
+<p>The FIFO unit test and 23 of 23 router checks pass.</p>
+<h3>Findings</h3>
+<div class="box"><div class="t">Lesson: cut-through means "check now, then wait"</div>
+<p>The hardest bug of the milestone was in the testbench's sense of time. This router is cut-through: a flit pushed into an empty FIFO with credit can be routed, arbitrated and appear on an output in the very cycle it arrives. A polling loop that always waits for the next clock edge before checking misses that first cycle, and every later check ends up one flit out of phase, which looked exactly like a routing or ordering bug. The fix was to check first and wait only if nothing has happened yet.</p></div>
+
+<h2 id="m4">M4: real verification</h2>
+<h3>Objective</h3>
+<p>Verify the credit-based mesh under sustained load, measure how much load it carries, explain the measurement with a model, and verify the verification itself.</p>
+<h3>Design and environment</h3>
+<ul>
+<li><b><code>mesh_credit.sv</code></b> applies M2's wiring to M3's router. Unlike M2's mesh it has real per-hop latency: a four-hop corner-to-corner packet takes exactly four cycles.</li>
+<li><b>Randomized scoreboard</b> (<code>random_traffic_tb.sv</code>): every tile injects at a fixed rate for thousands of cycles over four traffic patterns, and every packet must arrive exactly once, in order relative to other packets from the same source, with unchanged data.</li>
+<li><b>Embedded invariants</b> in the RTL, checked every cycle in every router: FIFO occupancy never exceeds capacity, credit counters never exceed buffer depth, and no input with a ready flit waits more than the round-robin bound for arbitration. Each violation increments a global counter, and every testbench fails if it is nonzero, so a fired assertion cannot scroll past in an otherwise-passing log.</li>
+<li><b>Open-loop sweep</b> (<code>latency_sweep_tb.sv</code>): the standard method (Section 3.8), 4 patterns at 20 offered loads, 80 points, each also a full correctness run including a drain-after-load deadlock check.</li>
+</ul>
+
+<h3>Results</h3>
+<figure>
+<img src="fig/m4_latency_sweep.png" alt="Latency and accepted throughput versus offered load for four traffic patterns on the 3x3 credit-based mesh">
+<figcaption><b>Figure 5.1.</b> M4's sweep on the 3&times;3 mesh. Left: average latency against offered load; every pattern starts near 3 to 4 cycles and then rises steeply. Right: accepted against offered load; each pattern follows the diagonal and then flattens. Uniform and bit-complement saturate near 0.70 to 0.75, transpose near 0.40 to 0.45, hotspot near 0.35 to 0.40.</figcaption>
+</figure>
+<p>A pencil-and-paper model predicts both numbers. It routes every source and destination pair with XY routing, adds up the traffic on each channel and each ejection port, and takes the bound as one over the heaviest load, since nothing carries more than one flit per cycle.</p>
+<table>
+<thead><tr><th style="width:15%">Pattern</th><th class="num">Zero-load latency, model / measured</th><th class="num">Saturation bound</th><th>What sets the bound</th><th class="num">Measured</th></tr></thead>
+<tbody>
+<tr><td>Uniform random</td><td class="num">3.00 / 3.01</td><td class="num">1.00</td><td>Each tile's own injection and ejection port; the busiest channel carries only 0.75 of the injected load</td><td class="num">0.70 to 0.75</td></tr>
+<tr><td>Transpose</td><td class="num">3.44 / 3.49</td><td class="num">0.44</td><td>Corner channels (0,0)&rarr;(0,1) and (2,2)&rarr;(2,1) carry 2.25 times the injection rate</td><td class="num">0.40 to 0.45</td></tr>
+<tr><td>Bit-complement</td><td class="num">3.83 / 3.80</td><td class="num">0.73</td><td>The center router's east and west outputs carry 1.375 times the rate</td><td class="num">0.70 to 0.75</td></tr>
+<tr><td>Hotspot</td><td class="num">3.06 / 3.09</td><td class="num">0.36</td><td>Tile (0,0)'s single ejection port receives 2.75 times the rate</td><td class="num">0.35 to 0.40</td></tr>
+</tbody></table>
+<p>Zero-load latency matches the model to within 0.05 cycles for every pattern. Three of the four patterns saturate exactly where the wiring says they must, which means for those patterns the router is not the bottleneck: the topology is.</p>
+<div class="box warn"><div class="t">Finding: uniform random is the exception</div>
+<p>Nothing in the topology stops uniform traffic before 1.0, yet it saturates at 0.70 to 0.75. At 0.75 offered load the busiest channel is only 56% utilized. The mesh has link bandwidth to spare and the router fails to use it. The cause is <b>head-of-line blocking</b> (Section 3.5).</p></div>
+<p><b>Is it just the buffers?</b> The obvious first suspect was buffer depth. The sweep was rerun with every input FIFO doubled to 8 flits:</p>
+<table class="tight">
+<thead><tr><th>Input FIFO depth</th><th class="num">Average latency at 0.75 offered</th><th class="num">Accepted at 0.80 offered</th><th class="num">Peak accepted</th></tr></thead>
+<tbody><tr><td>4 flits</td><td class="num">43.2 cycles</td><td class="num">0.747</td><td class="num">0.756</td></tr>
+<tr><td>8 flits (twice the storage)</td><td class="num">9.5 cycles</td><td class="num">0.793</td><td class="num">0.811</td></tr></tbody></table>
+<p>Twice the storage buys 7% more peak throughput and leaves most of the gap in place. A deeper FIFO holds more waiting flits but does not let any jump the queue. The fix is more queues, which is M5.</p>
+<p>Past saturation, the backlog moves to the network's edge. At 1.0 offered load, uniform network latency plateaus near 10 cycles because the mesh is full but still moving, while total latency reaches 714 cycles because the excess waits in the source queues.</p>
+
+<h3>Verification</h3>
+<ul>
+<li>The directed smoke test passes 12 of 12 checks, including M2's multi-hop scenarios through the buffered mesh.</li>
+<li>Each pattern injects about 8,000 packets with zero mismatches (uniform 8,089, transpose 8,090, bit-complement 8,084, hotspot 8,052).</li>
+<li>All 80 sweep points pass every correctness check and drain completely afterward, including hotspot at 1.0 offered load, 2.75 times past its bound.</li>
+</ul>
+<h4>Verifying the verification: mutation testing</h4>
+<p>A script copies the RTL, plants one realistic bug at a time and requires a testbench to fail. The unmutated RTL goes through the same harness first and must pass, otherwise a broken harness would "catch" everything. The three mutants each need a different kind of check:</p>
+<table class="tight">
+<thead><tr><th style="width:18%">Mutant</th><th style="width:28%">Bug planted</th><th>Caught by, and why the others miss it</th></tr></thead>
+<tbody>
+<tr><td><code>credit_overflow</code></td><td>Credit counters reset one too high</td><td>The credit-bound invariant, on the first cycle after reset. Nothing overflows until a buffer fills, so the scoreboard sees nothing at light load.</td></tr>
+<tr><td><code>fixed_priority</code></td><td>The round-robin pointer never advances</td><td>The bounded-wait invariant. Every packet still arrives intact, only unfairly; no data check can see unfairness.</td></tr>
+<tr><td><code>route_east_west</code></td><td>East-bound packets routed west</td><td>The scoreboard and drain check: packets pile against the mesh edge and never arrive. The invariants cannot see it.</td></tr>
+</tbody></table>
+<p>Data checks catch wrong answers; embedded invariants catch wrong behavior that has not yet produced a wrong answer.</p>
+
+<h3>Findings</h3>
+<div class="box"><div class="t">A real bug, and where it was</div>
+<p>Hotspot traffic first produced scoreboard failures that looked exactly like a router data-integrity bug. Chasing it took five steps, each ruling something out.</p>
+<ol>
+<li>The scoreboard's 4-bit sequence tag could wrap onto a still-outstanding packet when one packet waited 50 or more cycles under congestion. That was a real but false mismatch, fixed by tracking which tag values are in use. The failure persisted, so it was not the tag.</li>
+<li>Tracing the sending router's FIFO and credit state cycle by cycle showed the testbench's sender-side credit counter believed it had room when the real FIFO was already full, so a push was silently dropped.</li>
+<li>The root cause: the testbench updated the counter in two separate always-blocks, one on send and one on credit return. Under the densest injection of any milestone so far, a send and a same-cycle credit return occasionally collided and one update was lost, leaking exactly one credit.</li>
+<li>The fix collapsed both updates into one synchronous process covering sent, returned, both and neither, exactly as the router's own counter does.</li>
+</ol>
+<p>The RTL was correct the whole time. A testbench that tracks protocol state needs the same care against races as the design it tests.</p></div>
+<p>This Icarus build also cannot parse concurrent assertions (<code>property</code> and <code>assert property</code>), so credit conservation and starvation freedom are implemented as immediate assertions plus a procedural bounded-wait counter. M7 later proves the same properties formally.</p>
